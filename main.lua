@@ -66,41 +66,6 @@ local function get_cells(...)
     return unpack(output)
 end
 
-function circles(points, radius, rknob)
-    for k, v in pairs(points) do
-        local r = radius[k] or 1
-        local x2, y2 = denorm_point(v.x, v.y)
-        love.graphics.circle('fill', x2, y2, r * (50 * rknob))
-    end
-end
-
-local last_x, last_y = love.mouse.getPosition()
-function mouse(dt, position, delta)
-    local x, y = norm_point(love.mouse.getPosition())
-
-    if not position.default then
-        position.default = {x=x, y=y}
-    end
-    position.default.x = x
-    position.default.y = y
-    --[[for k, v in pairs(position) do
-        v.x = x
-        v.y = y
-    end]]--
-
-    if not delta.default then
-        delta.default = {x=0, y=0}
-    end
-
-    for k, v in pairs(delta) do
-        v.x = (x - last_x) / dt
-        v.y = (y - last_y) / dt
-    end
-
-    last_x = x
-    last_y = y
-end
-
 function pva(dt, initial_positions, position, velocity, acceleration, vk, ak)
     for k, _ in all_keys(initial_positions, position) do
         if not initial_positions[k] then
@@ -192,60 +157,6 @@ function remove(from, trigger)
         local t = trigger[k] or 0
         if t > .8 then
             from[k] = nil
-        end
-    end
-end
-
-function touches(a, aradius, arknob, b, bradius, brknob, atouch, btouch)
-    for k, _ in pairs(atouch) do
-        if not a[k] then
-            atouch[k] = nil
-        end
-    end
-
-    for j, _ in pairs(btouch) do
-        if not b[j] then
-            btouch[j] = nil
-        end
-    end
-
-    atouch.default = 0
-    btouch.default = 0
-
-    for k in pairs(a) do
-        for j in pairs(b) do
-            if a[k] ~= b[j] then
-                local ar = aradius[k] or 1
-                ar = ar * .1 * arknob
-                local br = bradius[j] or 1
-                br = br * .1 * brknob
-                local av = a[k]
-                local bv = b[j]
-                local dx, dy = av.x - bv.x, av.y - bv.y
-                local d = math.sqrt(dx * dx + dy * dy)
-                if d < (ar + br) then
-                    atouch[k] = 1
-                    btouch[j] = 1
-                else
-                    atouch[k] = 0
-                    btouch[j] = 0
-                end
-            end
-        end
-    end
-end
-
-local function grid(resolution, resolution_co, points)
-    local res = ((resolution.default or .5) + 1) * .5
-    res = res * resolution_co
-    local rx = math.floor(20 * res)
-    local ry = math.floor(20 * res)
-    for x=0,rx do
-        for y = 0,ry do
-            local fx = (x / rx) * 2 - 1
-            local fy = (y / ry) * 2 - 1
-            local key = x * rx + y
-            points[key] = rawget(points, key) or {x=fx, y=fy}
         end
     end
 end
@@ -350,25 +261,29 @@ local function visit_module(module, method, ...)
     end
 end
 
-module2 {
-    name = 'circles',
-    parts = {
-        points = {'V', 'port', 'vector'},
-        radii = {'R', 'port', 'number'},
-        radius_knob = {'R', 'knob'},
-    },
-    layout = {
-        {'points', 'radii'},
-        {'', 'radius_knob'}
-    },
-    draw = function(self)
-        for k, v in pairs(self.points) do
-            local r = (self.radii[k] or 1) * self.radius_knob * 100
-            local nx, ny = denorm_point(v.x, v.y)
-            love.graphics.circle('fill', nx, ny, r)
+function circle()
+    module2 {
+        name = 'circles',
+        parts = {
+            points = {'V', 'port', 'vector'},
+            radii = {'R', 'port', 'number'},
+            radius_knob = {'R', 'knob'},
+        },
+        layout = {
+            {'points', 'radii'},
+            {'', 'radius_knob'}
+        },
+        draw = function(self)
+            for k, v in pairs(self.points) do
+                local r = (self.radii[k] or 1) * self.radius_knob * 100
+                local nx, ny = denorm_point(v.x, v.y)
+                love.graphics.circle('fill', nx, ny, r)
+            end
         end
-    end
-}
+    }
+end
+circle()
+circle()
 
 local mclicks = Cell()
 module2 {
@@ -476,6 +391,43 @@ module2 {
             local x, y = denorm_point(v.x, v.y)
             local r = touch_radius(self.b_radii[k], self.b_radii_knob)
             love.graphics.circle('line', x, y, r * 600)
+        end
+    end
+}
+
+module2 {
+    name = 'grid',
+    parts = {
+        resolution = {'Res', 'port', 'number'},
+        res_knob = {'', 'knob', 'number'},
+        points = {'Out', 'port', 'vector'},
+    },
+    layout = {
+        {'resolution'},
+        {'res_knob', 'points'}
+    },
+    update = function(self, dt)
+        local res = ((self.resolution.default or .5) + 1) * .5
+        res = res * self.res_knob
+        local rx = math.floor(20 * res)
+        local ry = math.floor(20 * res)
+        local seen = {}
+        for x=0,rx do
+            for y = 0,ry do
+                local fx = (x / rx) * 2 - 1
+                local fy = (y / ry) * 2 - 1
+                local key = x * rx + y
+                local p = self.points[key] or {}
+                p.x = fx
+                p.y = fy
+                self.points[key] = p
+                seen[key] = true
+            end
+        end
+        for key, value in pairs(self.points) do
+            if not seen[key] then
+                self.points[key] = nil
+            end
         end
     end
 }
@@ -706,15 +658,6 @@ local sin_thetas = Cell()
 function love.update(dt)
     T = T + dt
 
-    --[[mouse(dt, m2point.cell, m2delta.cell)
-    grid(grid_resolution.cell, grid_resolution.knob, grid_points.cell)
-    pva(dt, pvai.cell, pvap.cell, pvav.cell, pvaa.cell, pvav.knob, pvaa.knob)
-    sin_wave(dt, sin_thetas, sin_freq.cell, sin_amp.cell, sin_offset.cell, sin_output.cell, sin_ids.cell)
-    touches(touch_a.cell, touch_arad.cell, touch_arad.knob, touch_b.cell, touch_brad.cell, touch_brad.knob, touch_atouch.cell, touch_btouch.cell)
-    vector(vec_from.cell, vec_to.cell, vec_delta.cell, vec_mult.cell)
-    vector_math(vecm_input.cell, vecm_add.cell, vecm_mult.cell, vecm_output.cell, vecm_mag.cell)
-    combine(comb_a.cell, comb_b.cell, comb_c.cell, comb_output.cell)
-    remove(rem_from.cell, rem_trigger.cell)]]--
     for i=1,#modules do
         local module = modules[i]
         visit_module(module, 'update', dt)
