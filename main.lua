@@ -10,6 +10,13 @@ local knobs = {}
 local edges = { }
 local cells = {}
 
+local _click_id = 0
+
+local clicking_port = nil
+local removing = false
+-- other ports that I'm connected to
+local holding_connections = {}
+
 local function Cell(default)
     return setmetatable({
         default=default
@@ -506,9 +513,6 @@ module2 {
     end
 }
 
-local clicking_port = nil
-local removing = false
-
 local function point_in(point, p2, r)
     local dx = point.x - p2.x
     local dy = point.y - p2.y
@@ -685,7 +689,6 @@ function love.keypressed(key)
 end
 
 function love.draw(dt)
-    --circles(c2points.cell, c2radius.cell, c2radius.knob)
     for i=1,#modules do
         visit_module(modules[i], 'draw')
     end
@@ -704,13 +707,11 @@ function love.draw(dt)
     draw_connections()
 
     if clicking_port then
-        local p = ports[clicking_port]
         local mx, my = love.mouse.getPosition()
-        if removing then
-            love.graphics.setColor(1, 0, 0, 1)
+        for i=1,#holding_connections do
+            local port = ports[holding_connections[i]]
+            love.graphics.line(mx, my, port.x, port.y)
         end
-        love.graphics.line(p.x, p.y, mx, my)
-        love.graphics.setColor(1, 1, 1, 1)
     end
 
     if tweaking_port then
@@ -722,20 +723,52 @@ function love.draw(dt)
     end
 end
 
-local _click_id = 0
 function love.mousepressed(x, y, which)
-    if which == 1 or which == 2 then
+    if which == 1 then
         clicking_port = get_hovering_port_id()
-        removing = which == 2
-        if not clicking_port then
+
+        if clicking_port then
+            -- immediatly disconnect
+            local cp = ports[clicking_port]
+            holding_connections = {}
+            for i=1,#edges do
+                local edge = edges[i]
+                if edge[1] == clicking_port then
+                    table.insert(holding_connections, edge[2])
+                end
+
+                if edge[2] == clicking_port then
+                    table.insert(holding_connections, edge[1])
+                end
+            end
+
+            if #holding_connections == 0 then
+                table.insert(holding_connections, clicking_port)
+            end
+
+            disconnect1(clicking_port)
+        else
             local x2, y2 = norm_point(x, y)
             local key = 'click_' .. _click_id
             mclicks[key] = {x=x2, y=y2}
             _click_id = _click_id + 1
         end
-    elseif which == 3 then
-        tweaking_port = get_hovering_port_id()
     end
+end
+
+function love.mousereleased(x, y)
+    hovering_port = get_hovering_port_id()
+
+    if hovering_port and clicking_port then
+        local type1, type2 = ports[hovering_port].type, ports[clicking_port].type
+        for i=1,#holding_connections do
+            connect(hovering_port, holding_connections[i])
+        end
+        update_ports()
+    end
+
+    clicking_port = nil
+    tweaking_port = nil
 end
 
 function love.wheelmoved(x, y)
@@ -746,21 +779,3 @@ function love.wheelmoved(x, y)
     end
 end
 
-function love.mousereleased(x, y)
-    hovering_port = get_hovering_port_id()
-
-    if hovering_port and clicking_port then
-        local type1, type2 = ports[hovering_port].type, ports[clicking_port].type
-        if type1 == type2 or type1 == '*' or type2 == '*' then
-            if removing then
-                disconnect(clicking_port, hovering_port)
-            else
-                connect(hovering_port, clicking_port)
-            end
-            update_ports()
-        end
-    end
-
-    clicking_port = nil
-    tweaking_port = nil
-end
