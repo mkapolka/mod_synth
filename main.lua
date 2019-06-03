@@ -205,6 +205,9 @@ local function module2_part(part, x, y)
     local output = {x=x, y=y, name=name, part_type=part_type}
     if part_type == 'port' then
         output.type = part[3]
+        output.output = part[4] == 'out'
+        output.own_cell = Cell()
+        output.cell = output.own_cell
         table.insert(ports, output)
     end
 
@@ -217,12 +220,18 @@ end
 
 local my = 0
 local function module2(template)
+    my = my
     template.target = {}
     template.x = 0
     template.y = my
-    my = my + 30
     local new_parts = {}
     for ly=1,#template.layout do
+        if ly == 1 then
+            my = my + 30
+        else
+            my = my + 40
+        end
+
         local row = template.layout[ly]
         for lx=1,#row do
             local key = row[lx]
@@ -231,7 +240,6 @@ local function module2(template)
                 new_parts[key] = module2_part(part, lx * 30, my)
             end
         end
-        my = my + 40
     end
 
     for k in pairs(template.parts) do
@@ -289,12 +297,17 @@ local mclicks = Cell()
 module2 {
     name = 'mouse',
     parts = {
-        clicks = {'CLK', 'port', 'vector'},
-        position = {'POS', 'port', 'vector'}
+        clicks = {'CLK', 'port', 'vector', 'out'},
+        position = {'POS', 'port', 'vector', 'out'}
     },
     layout = {
         {'clicks', 'position'}
     },
+    restart = function(self)
+        for k, v in pairs(mclicks) do
+            mclicks[k] = nil
+        end
+    end,
     update = function(self, dt)
         for k, v in pairs(self.clicks) do
             if not mclicks[k] then
@@ -320,14 +333,14 @@ end
 module2 {
     name = 'touch',
     parts = {
-        a_positions = {'A', 'port', 'vector'},
-        a_radii = {'Ar', 'port', 'number'},
+        a_positions = {'A', 'port', 'vector', 'in'},
+        a_radii = {'Ar', 'port', 'number', 'in'},
         a_radii_knob = {'Ar*', 'knob', 'number'},
-        b_positions = {'B', 'port', 'vector'},
-        b_radii = {'Br', 'port', 'number'},
+        b_positions = {'B', 'port', 'vector', 'in'},
+        b_radii = {'Br', 'port', 'number', 'in'},
         b_radii_knob = {'Br*', 'knob', 'number'},
-        a_touches = {'At', 'port', 'number'},
-        b_touches = {'Bt', 'port', 'number'},
+        a_touches = {'At', 'port', 'number', 'out'},
+        b_touches = {'Bt', 'port', 'number', 'out'},
     },
     layout = {
         {'a_positions', 'b_positions', 'a_radii', 'b_radii'},
@@ -398,9 +411,9 @@ module2 {
 module2 {
     name = 'grid',
     parts = {
-        resolution = {'Res', 'port', 'number'},
+        resolution = {'Res', 'port', 'number', 'in'},
         res_knob = {'', 'knob', 'number'},
-        points = {'Out', 'port', 'vector'},
+        points = {'Out', 'port', 'vector', 'out'},
     },
     layout = {
         {'resolution'},
@@ -416,7 +429,7 @@ module2 {
             for y = 0,ry do
                 local fx = (x / rx) * 2 - 1
                 local fy = (y / ry) * 2 - 1
-                local key = x * rx + y
+                local key = 'grid_' .. (x * rx + y)
                 local p = self.points[key] or {}
                 p.x = fx
                 p.y = fy
@@ -432,74 +445,66 @@ module2 {
     end
 }
 
---[[local m2point, m2delta, mclicks, mclicktime = module('mouse', {
-    {'mp', 'vector'},
-    {'md', 'vector'},
-    {'clicks', 'vector'},
-    {'ctime', 'number'},
-})
+module2 {
+    name = 'guys',
+    parts = {
+        positions = {'V', 'port', 'vector', 'in'},
+        targets = {'Targ', 'port', 'vector', 'in'},
+        speed = {'Spd', 'port', 'number', 'in'},
+        speed_knob = {'', 'knob', 'number'},
+        min_knob = {'MIN', 'knob', 'number'},
+        max_knob = {'MAX', 'knob', 'number'},
+        positions_out = {'Vout', 'port', 'vector', 'out'},
+        distance_out = {'D', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'positions', 'targets', 'speed', 'speed_knob'},
+        {'min_knob', 'max_knob'},
+        {'positions_out', 'distance_out'}
+    },
+    start = function(self)
+        self.offsets = Cell()
+    end,
+    update = function(self, dt)
+        for k, v in pairs(self.positions_out) do
+            if not self.positions[k] then
+                self.positions_out[k] = nil
+                self.offsets[k] = nil
+                self.distance_out[k] = nil
+            end
+        end
 
-local pvai, pvap, pvav, pvaa = module('pva', {
-    {'i', 'vector'},
-    {'p', 'vector'},
-    {'v', 'vector', true},
-    {'a', 'vector', true},
-})
+        for k, v in pairs(self.positions) do
+            local speed = (self.speed[k] or 1) * self.speed_knob
+            self.offsets[k] = self.offsets[k] or {x=0, y=0}
+            local offset = self.offsets[k]
 
-local c2points, c2radius = module('circle', {
-    {'cv', 'vector'},
-    {'cr', 'number', true}
-})
+            local guyx = v.x + offset.x
+            local guyy = v.y + offset.y
+            local target = self.targets[k] or {x=guyx, y=guyy}
 
-local sin_freq, sin_amp, sin_offset, sin_output, sin_ids = module('sin', {
-    {'f', 'number'},
-    {'a', 'number'},
-    {'o', 'number'},
-    {'out', 'number'},
-    {'id', '*'},
-})
+            local dx = target.x - guyx
+            local dy = target.y - guyy
+            local d = math.sqrt(dx * dx + dy * dy)
+            local min = self.min_knob
+            local max = self.max_knob
+            if self.max_knob == 1 then
+                max = 100000
+            end
 
-local vec_from, vec_to, vec_mult, vec_delta = module('vector', {
-    {'from', 'vector'},
-    {'to', 'vector'},
-    {'*', 'number'},
-    {'delta', 'vector'},
-})
-
-local vecm_input, vecm_add, vecm_mult, vecm_mag, vecm_output = module('vecm', {
-    {'in', 'vector'},
-    {'+', 'vector'},
-    {'*', 'number'},
-    {'mag', 'number'},
-    {'out', 'vector'},
-})
-
-local rem_from, rem_trigger = module('rem', {
-    {'from', '*'},
-    {'trig', 'number'}
-})
-
-local touch_a, touch_arad, touch_b, touch_brad, touch_atouch, touch_btouch = module('touch', {
-    {'a', 'vector'},
-    {'ar', 'number', true},
-    {'b', 'vector'},
-    {'br', 'number', true},
-    {'at', 'number'},
-    {'bt', 'number'},
-})
-
-local grid_resolution, grid_points = module('grid', {
-    {'res', 'number', true},
-    {'points', 'vector'},
-})
-
-local comb_a, comb_b, comb_c, comb_output = module('combine', {
-    {'a', '*'},
-    {'b', '*'},
-    {'c', '*'},
-    {'out', '*'}
-})]]--
-
+            if d < max and d > min then
+                offset.x = offset.x + dx * speed * dt
+                offset.y = offset.y + dy * speed * dt
+            end
+            self.distance_out[k] = d
+            
+            self.positions_out[k] = self.positions_out[k] or {x=0, y=0}
+            local pout = self.positions_out[k]
+            pout.x = v.x + offset.x
+            pout.y = v.y + offset.y
+        end
+    end
+}
 
 local clicking_port = nil
 local removing = false
@@ -530,6 +535,10 @@ local function draw_ports()
         love.graphics.setColor(color)
         love.graphics.circle(mode, port.x, port.y, PORT_RADIUS)
         love.graphics.circle(mode, port.x, port.y, PORT_RADIUS / 2)
+        if port.output then
+            local fx, fy = math.floor(port.x), math.floor(port.y)
+            love.graphics.rectangle('line', fx - PORT_RADIUS, fy-PORT_RADIUS, PORT_RADIUS*2, PORT_RADIUS*2)
+        end
         love.graphics.setColor(1, 1, 1, 1)
     end
 end
@@ -537,6 +546,11 @@ end
 local function draw_knobs()
     for i=1,#knobs do
         local knob = knobs[i]
+        if knob.name then
+            local width = love.graphics.getFont():getWidth(knob.name)
+            love.graphics.print(knob.name, math.floor(knob.x - width / 2), knob.y + 10)
+        end
+
         local knob_mode = 'line'
         local mx, my = love.mouse.getPosition()
         local hovering = point_in({x=mx, y=my}, knob, KNOB_RADIUS)
@@ -618,40 +632,27 @@ local function get_hovering_knob_id()
 end
 
 local function update_ports()
-    local edge_group = {}
-
-    -- Connected components
-    for i=1,#ports do
-        edge_group[i] = i
+    for k, v in pairs(ports) do
+        v.cell = v.own_cell
     end
 
-    local changed = true
-    while changed do
-        changed = false
-        for i=1,#edges do
-            local edge = edges[i]
-            local min = math.min(edge_group[edge[1]], edge_group[edge[2]])
-            if edge_group[edge[1]] ~= min then
-                edge_group[edge[1]] = min
-                changed = true
-            end
-            if edge_group[edge[2]] ~= min then
-                edge_group[edge[2]] = min
-                changed = true
-            end
-        end
-    end
-
-    local cc = {}
-    for i=1,#edge_group do
-        cells[edge_group[i]] = cells[edge_group[i]] or Cell()
-        ports[i].cell = cells[edge_group[i]]
+    for i=1,#edges do
+        local edge = edges[i]
+        local left = ports[edge[1]]
+        local right = ports[edge[2]]
+        local out_port = left.output and left or right
+        local in_port = not left.output and left or right
+        in_port.cell = out_port.cell
     end
 end
 
 function love.load()
     love.window.setMode(800, 600)
     update_ports()
+    for i=1,#modules do
+        local module = modules[i]
+        visit_module(module, 'start')
+    end
 end
 
 local sin_thetas = Cell()
@@ -675,9 +676,9 @@ end
 
 function love.keypressed(key)
     if key == 'r' then
-        for k, v in pairs(cells) do
-            for k2 in pairs(v) do
-                v[k2] = nil
+        for k, v in pairs(ports) do
+            for k2 in pairs(v.cell) do
+                v.cell[k2] = nil
             end
         end
     end
@@ -689,14 +690,15 @@ function love.draw(dt)
         visit_module(modules[i], 'draw')
     end
 
+    love.graphics.setColor(0, 0, 0, .5)
+    love.graphics.rectangle('fill', 0, 0, 200, 300)
+    love.graphics.setColor(1, 1, 1, 1)
+
     for i=1,#modules do
         local module = modules[i]
         love.graphics.print(module.name, module.x, module.y)
     end
 
-    love.graphics.setColor(0, 0, 0, .1)
-    love.graphics.rectangle('fill', 0, 0, 200, 300)
-    love.graphics.setColor(1, 1, 1, 1)
     draw_ports()
     draw_knobs()
     draw_connections()
@@ -727,8 +729,8 @@ function love.mousepressed(x, y, which)
         removing = which == 2
         if not clicking_port then
             local x2, y2 = norm_point(x, y)
-            mclicks[_click_id] = {x=x2, y=y2}
-            --mclicktime.cell[_click_id] = T
+            local key = 'click_' .. _click_id
+            mclicks[key] = {x=x2, y=y2}
             _click_id = _click_id + 1
         end
     elseif which == 3 then
