@@ -17,8 +17,12 @@ local removing = false
 -- other ports that I'm connected to
 local holding_connections = {}
 
+local function types_match(t1, t2)
+    return t1 == t2 or t1 == '*' or t2 == '*'
+end
+
 local function Cell(default)
-    return setmetatable({
+    local output = setmetatable({
         default=default
     }, {
         __index = function(self, key)
@@ -29,6 +33,8 @@ local function Cell(default)
             end
         end
     })
+    table.insert(cells, output)
+    return output
 end
 
 local function get_looped(a, k)
@@ -536,6 +542,12 @@ local function draw_ports()
             number = {1, .8, .8, 1},
         }
         local color = colors[port.type or ''] or {1, 1, 1, .8}
+        if clicking_port then
+            local clicking = ports[clicking_port]
+            if clicking.output == port.output or not types_match(clicking.type, port.type) then
+                color[4] = .3
+            end
+        end
         love.graphics.setColor(color)
         love.graphics.circle(mode, port.x, port.y, PORT_RADIUS)
         love.graphics.circle(mode, port.x, port.y, PORT_RADIUS / 2)
@@ -592,6 +604,20 @@ local function disconnect(pid1, pid2)
     local cid = get_connection_id(pid1, pid2)
     if cid then
         table.remove(edges, cid)
+    end
+end
+
+local function disconnect_all(pid)
+    local to_remove = {}
+    for i=1,#edges do
+        local e = edges[i]
+        if e[1] == pid or e[2] == pid then
+            table.insert(to_remove, i)
+        end
+    end
+
+    for i=#to_remove,1,-1 do
+        table.remove(edges, to_remove[i])
     end
 end
 
@@ -680,9 +706,9 @@ end
 
 function love.keypressed(key)
     if key == 'r' then
-        for k, v in pairs(ports) do
-            for k2 in pairs(v.cell) do
-                v.cell[k2] = nil
+        for k, v in pairs(cells) do
+            for k2 in pairs(v) do
+                v[k2] = nil
             end
         end
     end
@@ -746,7 +772,8 @@ function love.mousepressed(x, y, which)
                 table.insert(holding_connections, clicking_port)
             end
 
-            disconnect1(clicking_port)
+            disconnect_all(clicking_port)
+            update_ports()
         else
             local x2, y2 = norm_point(x, y)
             local key = 'click_' .. _click_id
@@ -760,11 +787,15 @@ function love.mousereleased(x, y)
     hovering_port = get_hovering_port_id()
 
     if hovering_port and clicking_port then
-        local type1, type2 = ports[hovering_port].type, ports[clicking_port].type
-        for i=1,#holding_connections do
-            connect(hovering_port, holding_connections[i])
+        local hovering = ports[hovering_port]
+        local clicking = ports[clicking_port]
+        local type1, type2 = hovering.type, clicking.type
+        if types_match(type1, type2) and hovering.output ~= clicking.output then
+            for i=1,#holding_connections do
+                connect(hovering_port, holding_connections[i])
+            end
+            update_ports()
         end
-        update_ports()
     end
 
     clicking_port = nil
