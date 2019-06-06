@@ -4,6 +4,7 @@ local T = love.timer.getTime()
 local PORT_RADIUS = 10
 local KNOB_RADIUS = 8
 
+local module_types = {}
 local modules = {}
 local ports = {}
 local knobs = {}
@@ -16,6 +17,12 @@ local clicking_port = nil
 local removing = false
 -- other ports that I'm connected to
 local holding_connections = {}
+
+-- Initialized in love.load
+local screen = nil
+local NORM_FACTOR = 600
+
+local fullscreen = false
 
 local function types_match(t1, t2)
     return t1 == t2 or t1 == '*' or t2 == '*'
@@ -45,7 +52,6 @@ local function get_looped(a, k)
     end
 end
 
-local NORM_FACTOR = 600
 local function norm_point(x, y)
     return (x - NORM_FACTOR / 2) / NORM_FACTOR, (y - NORM_FACTOR / 2) / NORM_FACTOR
 end
@@ -79,138 +85,8 @@ local function get_cells(...)
     return unpack(output)
 end
 
-function pva(dt, initial_positions, position, velocity, acceleration, vk, ak)
-    for k, _ in all_keys(initial_positions, position) do
-        if not initial_positions[k] then
-            position[k] = nil
-        else
-            position[k] = position[k] or initial_positions[k]
-            local p = position[k]
-            local v = velocity[k] or {x=0, y=0}
-            local a = acceleration[k]
-            if a then
-                v.x = v.x + a.x * dt * ak
-                v.y = v.y + a.y * dt * ak
-                velocity[k] = v
-            end
-
-            p.x = p.x + v.x * dt * vk
-            p.y = p.y + v.y * dt * vk
-        end
-    end
-end
-
 local function vmag(v)
     return math.sqrt(v.x * v.x + v.y * v.y)
-end
-
-function vector(from, to, delta, mult)
-    for k, _ in all_keys(from, to) do
-        local f = from[k] or {x=0, y=0}
-        local t = to[k] or {x=0, y=0}
-        local m = mult[k] or 1
-        local dd = delta[k] or {x=0, y=0}
-        dd.x = (f.x - t.x) * m
-        dd.y = (f.y - t.y) * m
-        delta[k] = dd
-    end
-end
-
--- TODO: mult is wrong
-function vector_math(input, add, mult, output, mag)
-    for k, v in pairs(input) do
-        local a = add[k] or {x=0, y=0}
-        local m = mult[k] or 1
-        local out = output[k] or {x=0, y=0}
-        out.x = (v.x + a.x) * m
-        out.y = (v.y + a.y) * m
-        output[k] = out
-        mag[k] = math.sqrt(out.x * out.x + out.y * out.y)
-    end
-end
-
--- ca * a + cb * b
-function math_node(ca, a, cb, b, output)
-    return {
-        update = function(dt)
-            for k in all_keys(ca, a, cb, b) do
-                local ca = ca[k] or 1
-                local a = a[k] or 0
-                local cb = cb[k] or 1
-                local b = b[k] or 0
-                output[k] = ca * a + cb * b
-            end
-        end
-    }
-end
-
-function sin_wave(dt, thetas, freq, amplitude, offset, output, ids)
-    output.default = output.default or 0
-    for k in all_keys(freq, offset, output, ids) do
-        local f = freq[k] or 1
-        local o = offset[k] or 0
-        --local t = thetas[k] or 0
-        local t = rawget(thetas, k) or 0
-        local amp = amplitude[k] or 1
-
-        output[k] = math.sin(t - o) * amp
-
-        if k == 'default' or ids[k] then
-            thetas[k] = t + dt * math.pi * f
-        else
-            thetas[k] = nil
-            output[k] = nil
-        end
-
-    end
-end
-
-function remove(from, trigger)
-    for k in all_keys(from, trigger) do
-        local t = trigger[k] or 0
-        if t > .8 then
-            from[k] = nil
-        end
-    end
-end
-
-local function combine(a, b, c, output)
-    for k, v in pairs(a) do
-        output[k] = v
-    end
-
-    for k, v in pairs(b) do
-        output[k] = v
-    end
-
-    for k, v in pairs(c) do
-        output[k] = v
-    end
-end
-
-local next_module = 25
-
-local function module(name, module_ports)
-    local y = next_module
-    local x = 10
-    local created_ports = {}
-
-    for _, port in pairs(module_ports) do
-        local m = {x = x, y = y, type=port[2], name = port[1]}
-        if port[3] then
-            m.knob = .5
-        end
-        table.insert(created_ports, m)
-        table.insert(ports, m)
-        x = x + 30
-    end
-
-    table.insert(modules, {
-        name = name
-    })
-
-    next_module = next_module + 55
-    return unpack(created_ports)
 end
 
 local function module2_part(part, x, y)
@@ -231,18 +107,39 @@ local function module2_part(part, x, y)
     return output
 end
 
+local mx = 0
 local my = 0
-local function module2(template)
-    my = my
+local function rack(name)
+    if not module_types[name] then
+        error("No such module: " .. name)
+    end
+    local t = module_types[name]
+
+    local template = {}
+    -- Clone the template
+    for k, v in pairs(t) do
+        template[k] = t[k]
+    end
+
+    local mw = #template.layout[1] * 40
+    local mh = #template.layout[1] * 50
+
+    if mx + mw > love.graphics.getWidth() then
+        mx = 0
+        my = my + mh
+    end
+
     template.target = {}
-    template.x = 0
+    template.x = mx
     template.y = my
+    
     local new_parts = {}
+    local yoffset = my
     for ly=1,#template.layout do
         if ly == 1 then
-            my = my + 30
+            yoffset = yoffset + 30
         else
-            my = my + 40
+            yoffset = yoffset + 40
         end
 
         local row = template.layout[ly]
@@ -250,10 +147,12 @@ local function module2(template)
             local key = row[lx]
             local part = template.parts[key]
             if part then
-                new_parts[key] = module2_part(part, lx * 30, my)
+                new_parts[key] = module2_part(part, mx + lx * 30, yoffset)
             end
         end
     end
+
+    mx = mx + mw
 
     for k in pairs(template.parts) do
         if not new_parts[k] then
@@ -263,6 +162,10 @@ local function module2(template)
 
     template.parts = new_parts
     table.insert(modules, template)
+end
+
+local function module2(template)
+    module_types[template.name] = template
 end
 
 local function visit_module(module, method, ...)
@@ -282,29 +185,25 @@ local function visit_module(module, method, ...)
     end
 end
 
-function circle()
-    module2 {
-        name = 'circles',
-        parts = {
-            points = {'V', 'port', 'vector'},
-            radii = {'R', 'port', 'number'},
-            radius_knob = {'R', 'knob'},
-        },
-        layout = {
-            {'points', 'radii'},
-            {'', 'radius_knob'}
-        },
-        draw = function(self)
-            for k, v in pairs(self.points) do
-                local r = (self.radii[k] or 1) * self.radius_knob * 100
-                local nx, ny = denorm_point(v.x, v.y)
-                love.graphics.circle('fill', nx, ny, r)
-            end
+module2 {
+    name = 'circles',
+    parts = {
+        points = {'V', 'port', 'vector'},
+        radii = {'R', 'port', 'number'},
+        radius_knob = {'R', 'knob'},
+    },
+    layout = {
+        {'points', 'radii'},
+        {'', 'radius_knob'}
+    },
+    draw = function(self)
+        for k, v in pairs(self.points) do
+            local r = (self.radii[k] or 1) * self.radius_knob * 100
+            local nx, ny = denorm_point(v.x, v.y)
+            love.graphics.circle('fill', nx, ny, r)
         end
-    }
-end
-circle()
-circle()
+    end
+}
 
 local mclicks = Cell()
 module2 {
@@ -333,9 +232,15 @@ module2 {
         end
 
         self.position.default = self.position.default or {}
-        local mx, my = norm_point(love.mouse.getPosition())
-        self.position.default.x = mx
-        self.position.default.y = my
+        local mx, my = love.mouse.getPosition()
+        if not fullscreen then
+            local sw, sh = love.graphics.getDimensions()
+            mx = (mx - (2 * sw / 3)) * 3
+            my = (my - (2 * sh / 3)) * 3
+        end
+        local nx, ny = norm_point(mx, my)
+        self.position.default.x = nx
+        self.position.default.y = ny
     end
 }
 
@@ -352,38 +257,35 @@ module2 {
         b_positions = {'B', 'port', 'vector', 'in'},
         b_radii = {'Br', 'port', 'number', 'in'},
         b_radii_knob = {'Br*', 'knob', 'number'},
-        a_touches = {'At', 'port', 'number', 'out'},
-        b_touches = {'Bt', 'port', 'number', 'out'},
+        touches = {'T', 'port', 'number', 'out'},
     },
     layout = {
         {'a_positions', 'b_positions', 'a_radii', 'b_radii'},
         {'', '', 'a_radii_knob', 'b_radii_knob'},
-        {'a_touches', 'b_touches'},
+        {'touches'},
     },
     update = function(self, dt)
         local a = self.a_positions
         local b = self.b_positions
-        local atouch = self.a_touches
-        local btouch = self.b_touches
+        local touch = self.touches
         local aradius = self.a_radii
         local bradius = self.b_radii
         local arknob = self.a_radii_knob
         local brknob = self.b_radii_knob
 
-        for k, _ in pairs(atouch) do
+        for k, _ in pairs(touch) do
             if not a[k] then
-                atouch[k] = nil
+                touch[k] = nil
             end
         end
 
-        for j, _ in pairs(btouch) do
+        for j, _ in pairs(touch) do
             if not b[j] then
-                btouch[j] = nil
+                touch[j] = nil
             end
         end
 
-        atouch.default = 0
-        btouch.default = 0
+        touch.default = 0
 
         for k in pairs(a) do
             for j in pairs(b) do
@@ -397,11 +299,11 @@ module2 {
                     local dx, dy = av.x - bv.x, av.y - bv.y
                     local d = math.sqrt(dx * dx + dy * dy)
                     if d < (ar + br) then
-                        atouch[k] = 1
-                        btouch[j] = 1
+                        touch[k] = 1
+                        touch[j] = 1
                     else
-                        atouch[k] = 0
-                        btouch[j] = 0
+                        touch[k] = 0
+                        touch[j] = 0
                     end
                 end
             end
@@ -429,7 +331,7 @@ module2 {
         points = {'Out', 'port', 'vector', 'out'},
     },
     layout = {
-        {'resolution'},
+        {'resolution', ''},
         {'res_knob', 'points'}
     },
     update = function(self, dt)
@@ -515,6 +417,46 @@ module2 {
             local pout = self.positions_out[k]
             pout.x = v.x + offset.x
             pout.y = v.y + offset.y
+        end
+    end
+}
+
+module2 {
+    name = 'death',
+    parts = {
+        members = {'Input', 'port', '*', 'in'},
+        living = {'Living', 'port', '*', 'out'},
+        die = {'Die', 'port', 'number', 'in'}
+    },
+    layout = {
+        {'members'},
+        {'die'},
+        {'living'},
+    },
+    start = function(self)
+        self._deaths = {}
+    end,
+    restart = function(self)
+        self._deaths = {}
+    end,
+    update = function(self, dt)
+        for k, v in pairs(self.living) do
+            if not self.members[k] then
+                self.living[k] = nil
+                self._deaths[k] = nil
+            end
+        end
+
+        for k, v in pairs(self.members) do
+            if self.die[k] and self.die[k] > .8 then
+                self._deaths[k] = true
+                self.living[k] = nil
+            end
+
+            if not self._deaths[k] then
+                self._deaths[k] = false
+                self.living[k] = v
+            end
         end
     end
 }
@@ -677,7 +619,19 @@ local function update_ports()
 end
 
 function love.load()
-    love.window.setMode(800, 600)
+    love.window.setMode(1024, 768)
+    NORM_FACTOR, _ = love.graphics.getDimensions()
+    screen = love.graphics.newCanvas()
+
+    -- Rack the modules we want
+    rack('mouse')
+    rack('grid')
+    rack('guys')
+    rack('death')
+    rack('touch')
+    rack('circles')
+    rack('circles')
+    
     update_ports()
     for i=1,#modules do
         local module = modules[i]
@@ -712,41 +666,57 @@ function love.keypressed(key)
             end
         end
     end
+
+    if key == 'f' then
+        fullscreen = not fullscreen
+    end
 end
 
 function love.draw(dt)
+    if not fullscreen then
+        for i=1,#modules do
+            local module = modules[i]
+            love.graphics.print(module.name, module.x, module.y)
+            local mw = #module.layout[1] * 40
+            local mh = #module.layout * 50
+            love.graphics.rectangle('line', module.x, module.y, mw, mh)
+        end
+
+        draw_ports()
+        draw_knobs()
+        draw_connections()
+
+        if clicking_port then
+            local mx, my = love.mouse.getPosition()
+            for i=1,#holding_connections do
+                local port = ports[holding_connections[i]]
+                love.graphics.line(mx, my, port.x, port.y)
+            end
+        end
+
+        if tweaking_port then
+            local p = ports[tweaking_port]
+            local mx, my = love.mouse.getPosition()
+            love.graphics.line(p.x, p.y, mx, my)
+            local v = p.cell.default
+            love.graphics.print(string.format('%s, %s', v.x, v.y), mx, my)
+        end
+
+        local sw, sh = love.graphics.getDimensions()
+        love.graphics.rectangle('line', sw - (sw / 3), sh - (sh / 3), sw / 3, sh / 3)
+        love.graphics.draw(screen, sw - (sw / 3), sh - (sh / 3), 0, 1/3, 1/3)
+
+        love.graphics.setCanvas(screen)
+        love.graphics.clear()
+    else -- fullscreen
+        local sw, sh = love.graphics.getDimensions()
+        love.graphics.rectangle('line', 0, 0, sw, sh)
+    end
+
     for i=1,#modules do
         visit_module(modules[i], 'draw')
     end
-
-    love.graphics.setColor(0, 0, 0, .5)
-    love.graphics.rectangle('fill', 0, 0, 200, 300)
-    love.graphics.setColor(1, 1, 1, 1)
-
-    for i=1,#modules do
-        local module = modules[i]
-        love.graphics.print(module.name, module.x, module.y)
-    end
-
-    draw_ports()
-    draw_knobs()
-    draw_connections()
-
-    if clicking_port then
-        local mx, my = love.mouse.getPosition()
-        for i=1,#holding_connections do
-            local port = ports[holding_connections[i]]
-            love.graphics.line(mx, my, port.x, port.y)
-        end
-    end
-
-    if tweaking_port then
-        local p = ports[tweaking_port]
-        local mx, my = love.mouse.getPosition()
-        love.graphics.line(p.x, p.y, mx, my)
-        local v = p.cell.default
-        love.graphics.print(string.format('%s, %s', v.x, v.y), mx, my)
-    end
+    love.graphics.setCanvas(nil)
 end
 
 function love.mousepressed(x, y, which)
@@ -775,7 +745,14 @@ function love.mousepressed(x, y, which)
             disconnect_all(clicking_port)
             update_ports()
         else
-            local x2, y2 = norm_point(x, y)
+            local sw, sh = love.graphics.getDimensions()
+            local mx, my = love.mouse.getPosition()
+            if not fullscreen then
+                mx = (mx - (2 * sw / 3)) * 3
+                my = (my - (2 * sh / 3)) * 3
+            end
+
+            local x2, y2 = norm_point(mx, my)
             local key = 'click_' .. _click_id
             mclicks[key] = {x=x2, y=y2}
             _click_id = _click_id + 1
