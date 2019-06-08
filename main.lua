@@ -1,4 +1,5 @@
 require "love"
+local Utils = require "utils"
 
 local T = love.timer.getTime()
 local PORT_RADIUS = 10
@@ -21,6 +22,7 @@ local holding_connections = {}
 -- Initialized in love.load
 local screen = nil
 local NORM_FACTOR = 600
+local SLACK = 30
 
 local fullscreen = false
 
@@ -190,17 +192,21 @@ module2 {
     parts = {
         points = {'V', 'port', 'vector'},
         radii = {'R', 'port', 'number'},
+        color = {'C', 'port', 'color', 'in'},
         radius_knob = {'R', 'knob'},
     },
     layout = {
-        {'points', 'radii'},
-        {'', 'radius_knob'}
+        {'points', 'radii', 'color'},
+        {'', 'radius_knob', ''}
     },
     draw = function(self)
         for k, v in pairs(self.points) do
+            local c = self.color[k] or {1, 1, 1, 1}
             local r = (self.radii[k] or 1) * self.radius_knob * 100
             local nx, ny = denorm_point(v.x, v.y)
+            love.graphics.setColor(unpack(c))
             love.graphics.circle('fill', nx, ny, r)
+            love.graphics.setColor(1, 1, 1, 1)
         end
     end
 }
@@ -461,6 +467,75 @@ module2 {
     end
 }
 
+-- output = a in + c
+module2 {
+    name = 'math',
+    parts = {
+        a = {'A', 'port', 'number', 'in'},
+        b = {'B', 'port', 'number', 'in'},
+        c = {'C', 'port', 'number', 'in'},
+        cknob = {'C', 'knob', 'number'},
+        out = {'Out', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'a', 'b', 'c'},
+        {'', '', 'cknob'},
+        {'out', '', ''},
+    },
+    update = function(self, dt)
+        for key in pairs(self.out) do
+            if not self.a[key] then
+                self.out[key] = nil
+            end
+        end
+
+        for key, a in pairs(self.a) do
+            local b = self.b[key] or 1
+            local c = self.c[key]
+            local cknob = (self.cknob - .5) * 2
+            if not c then
+                c = cknob
+            else
+                c = c * cknob
+            end
+            self.out[key] = a * b + c
+        end
+    end
+}
+
+module2 {
+    name = 'color',
+    parts = {
+        hue = {'H', 'port', 'number', 'in'},
+        saturation = {'S', 'port', 'number', 'in'},
+        value = {'V', 'port', 'number', 'in'},
+        hue_knob = {'H*', 'knob'},
+        saturation_knob = {'S*', 'knob'},
+        value_knob = {'V*', 'knob'},
+        output = {'Out', 'port', 'color', 'out'},
+    },
+    layout = {
+        {'hue', 'saturation', 'value'},
+        {'hue_knob', 'saturation_knob', 'value_knob'},
+        {'', '', 'output'},
+    },
+    update = function(self)
+        local function f(key)
+            local h = self.hue[key] or 1
+            local s = self.saturation[key] or 1
+            local v = self.value[key] or 1
+            h = h * self.hue_knob
+            s = s * self.saturation_knob
+            v = v * self.value_knob
+            self.output[key] = {Utils.hsv(h, s, v)}
+        end
+        for key in all_keys(self.hue, self.saturation, self.value) do
+            f(key)
+        end
+        f('default')
+    end
+}
+
 local function point_in(point, p2, r)
     local dx = point.x - p2.x
     local dy = point.y - p2.y
@@ -482,6 +557,7 @@ local function draw_ports()
         local colors = {
             vector = {1, 1, 1, 1},
             number = {1, .8, .8, 1},
+            color = {.8, 1, .8, 1},
         }
         local color = colors[port.type or ''] or {1, 1, 1, .8}
         if clicking_port then
@@ -527,9 +603,7 @@ end
 local function draw_connections()
     for i=1,#edges do
         local conn = edges[i]
-        local p1 = ports[conn[1]]
-        local p2 = ports[conn[2]]
-        love.graphics.line(p1.x, p1.y, p2.x, p2.y)
+        love.graphics.line(conn.curve:render(3))
     end
 end
 
@@ -576,7 +650,16 @@ end
 local function connect(pid1, pid2)
     local cid = get_connection_id(pid1, pid2)
     if not cid then
-        table.insert(edges, {pid1, pid2})
+        -- create a new connection
+        local connection = {pid1, pid2}
+        local p1 = ports[pid1]
+        local p2 = ports[pid2]
+        local mx, my = (p1.x + p2.x) / 2, (p1.y + p2.y) / 2
+        my = my + SLACK
+        local bezier = love.math.newBezierCurve(p1.x, p1.y, mx, my, p2.x, p2.y)
+        connection.curve = bezier
+
+        table.insert(edges, connection)
     end
 end
 
@@ -629,6 +712,7 @@ function love.load()
     rack('guys')
     rack('death')
     rack('touch')
+    rack('color')
     rack('circles')
     rack('circles')
     
@@ -639,7 +723,6 @@ function love.load()
     end
 end
 
-local sin_thetas = Cell()
 function love.update(dt)
     T = T + dt
 
@@ -738,12 +821,14 @@ function love.mousepressed(x, y, which)
                 end
             end
 
-            if #holding_connections == 0 then
-                table.insert(holding_connections, clicking_port)
-            end
-
             disconnect_all(clicking_port)
             update_ports()
+
+            if #holding_connections == 0 then
+                table.insert(holding_connections, clicking_port)
+            else
+                clicking_port = holding_connections[1]
+            end
         else
             local sw, sh = love.graphics.getDimensions()
             local mx, my = love.mouse.getPosition()
