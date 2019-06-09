@@ -1,15 +1,16 @@
-require "love"
 local Utils = require "utils"
 
 local T = love.timer.getTime()
 local PORT_RADIUS = 10
 local KNOB_RADIUS = 8
+local BUTTON_RADIUS = 9
 
 local module_types = {}
 local modules = {}
 local ports = {}
 local knobs = {}
-local edges = { }
+local buttons = {}
+local edges = {}
 local cells = {}
 
 local _click_id = 0
@@ -103,9 +104,15 @@ local function module2_part(part, x, y)
     end
 
     if part_type == 'knob' then
-        output.value = .5
+        output.value = part.default or .5
         table.insert(knobs, output)
     end
+
+    if part_type == 'button' then
+        output.value = part.default or false
+        table.insert(buttons, output)
+    end
+
     return output
 end
 
@@ -181,6 +188,10 @@ local function visit_module(module, method, ...)
             if v.part_type == 'knob' then
                 target[key] = v.value
             end
+
+            if v.part_type == 'button' then
+                target[key] = v.value
+            end
         end
 
         module[method](target, ...)
@@ -194,10 +205,11 @@ module2 {
         radii = {'R', 'port', 'number'},
         color = {'C', 'port', 'color', 'in'},
         radius_knob = {'R', 'knob'},
+        fill_mode = {'fill', 'button', default=false},
     },
     layout = {
         {'points', 'radii', 'color'},
-        {'', 'radius_knob', ''}
+        {'fill_mode', 'radius_knob', ''}
     },
     draw = function(self)
         for k, v in pairs(self.points) do
@@ -205,7 +217,11 @@ module2 {
             local r = (self.radii[k] or 1) * self.radius_knob * 100
             local nx, ny = denorm_point(v.x, v.y)
             love.graphics.setColor(unpack(c))
-            love.graphics.circle('fill', nx, ny, r)
+            local mode = 'line'
+            if self.fill_mode then
+                mode = 'fill'
+            end
+            love.graphics.circle(mode, nx, ny, r)
             love.graphics.setColor(1, 1, 1, 1)
         end
     end
@@ -264,11 +280,13 @@ module2 {
         b_radii = {'Br', 'port', 'number', 'in'},
         b_radii_knob = {'Br*', 'knob', 'number'},
         touches = {'T', 'port', 'number', 'out'},
+        gooshiness = {'Goosh', 'knob', default=0},
+        debug_switch = {'DBG', 'button', default=true},
     },
     layout = {
         {'a_positions', 'b_positions', 'a_radii', 'b_radii'},
-        {'', '', 'a_radii_knob', 'b_radii_knob'},
-        {'touches'},
+        {'gooshiness', '', 'a_radii_knob', 'b_radii_knob'},
+        {'touches', '', '', 'debug_switch'},
     },
     update = function(self, dt)
         local a = self.a_positions
@@ -305,8 +323,16 @@ module2 {
                     local dx, dy = av.x - bv.x, av.y - bv.y
                     local d = math.sqrt(dx * dx + dy * dy)
                     if d < (ar + br) then
-                        touch[k] = 1
-                        touch[j] = 1
+                        local f = d / (ar + br)
+                        if self.gooshiness == 0 then
+                            touch[k] = 1
+                            touch[j] = 1
+                        else
+                            local g = 2 + ((1 - self.gooshiness) * 100)
+                            local v = (2.0 / (1.0 + math.exp(-g * (1 - f)))) - 1
+                            touch[k] = v
+                            touch[j] = v
+                        end
                     else
                         touch[k] = 0
                         touch[j] = 0
@@ -316,15 +342,17 @@ module2 {
         end
     end,
     draw = function(self)
-        for k, v in pairs(self.a_positions) do
-            local x, y = denorm_point(v.x, v.y)
-            local r = touch_radius(self.a_radii[k], self.a_radii_knob)
-            love.graphics.circle('line', x, y, r * 600)
-        end
-        for k, v in pairs(self.b_positions) do
-            local x, y = denorm_point(v.x, v.y)
-            local r = touch_radius(self.b_radii[k], self.b_radii_knob)
-            love.graphics.circle('line', x, y, r * 600)
+        if self.debug_switch then
+            for k, v in pairs(self.a_positions) do
+                local x, y = denorm_point(v.x, v.y)
+                local r = touch_radius(self.a_radii[k], self.a_radii_knob)
+                love.graphics.circle('line', x, y, r * NORM_FACTOR)
+            end
+            for k, v in pairs(self.b_positions) do
+                local x, y = denorm_point(v.x, v.y)
+                local r = touch_radius(self.b_radii[k], self.b_radii_knob)
+                love.graphics.circle('line', x, y, r * NORM_FACTOR)
+            end
         end
     end
 }
@@ -373,15 +401,17 @@ module2 {
         targets = {'Targ', 'port', 'vector', 'in'},
         speed = {'Spd', 'port', 'number', 'in'},
         speed_knob = {'', 'knob', 'number'},
-        min_knob = {'MIN', 'knob', 'number'},
-        max_knob = {'MAX', 'knob', 'number'},
+        min_knob = {'MIN', 'knob', 'number', default=0},
+        max_knob = {'MAX', 'knob', 'number', default=1},
         positions_out = {'Vout', 'port', 'vector', 'out'},
-        distance_out = {'D', 'port', 'number', 'out'}
+        distance_out = {'D', 'port', 'number', 'out'},
+        respawn = {'Respawn', 'port', 'number', 'in'},
+        debug = {'DBG', 'button', default=false}
     },
     layout = {
         {'positions', 'targets', 'speed', 'speed_knob'},
-        {'min_knob', 'max_knob'},
-        {'positions_out', 'distance_out'}
+        {'min_knob', 'max_knob', '', 'respawn'},
+        {'debug', '', 'positions_out', 'distance_out'}
     },
     start = function(self)
         self.offsets = Cell()
@@ -396,6 +426,10 @@ module2 {
         end
 
         for k, v in pairs(self.positions) do
+            if self.respawn[k] and self.respawn[k] > .8 then
+                self.offsets[k] = {x=0, y=0}
+            end
+
             local speed = (self.speed[k] or 1) * self.speed_knob
             self.offsets[k] = self.offsets[k] or {x=0, y=0}
             local offset = self.offsets[k]
@@ -424,6 +458,16 @@ module2 {
             pout.x = v.x + offset.x
             pout.y = v.y + offset.y
         end
+    end,
+    draw = function(self)
+        if self.debug then
+            for k, v in pairs(self.positions) do
+                local offset = self.offsets[k] or {x=0, y=0}
+                local px, py = denorm_point(v.x + offset.x, v.y + offset.y)
+                love.graphics.print(k, px, py + 10)
+                love.graphics.circle('line', px, py, 10)
+            end
+        end
     end
 }
 
@@ -432,7 +476,7 @@ module2 {
     parts = {
         members = {'Input', 'port', '*', 'in'},
         living = {'Living', 'port', '*', 'out'},
-        die = {'Die', 'port', 'number', 'in'}
+        die = {'Die', 'port', 'number', 'in'},
     },
     layout = {
         {'members'},
@@ -475,30 +519,38 @@ module2 {
         b = {'B', 'port', 'number', 'in'},
         c = {'C', 'port', 'number', 'in'},
         cknob = {'C', 'knob', 'number'},
-        out = {'Out', 'port', 'number', 'out'},
+        out = {'a+bc', 'port', 'number', 'out'},
+        invert_a = {'1-a', 'port', 'number', 'out'},
     },
     layout = {
         {'a', 'b', 'c'},
         {'', '', 'cknob'},
-        {'out', '', ''},
+        {'out', '', 'invert_a'},
     },
     update = function(self, dt)
         for key in pairs(self.out) do
-            if not self.a[key] then
+            if not self.a[key] and not self.b[key] and not self.c[key] then
                 self.out[key] = nil
             end
         end
 
-        for key, a in pairs(self.a) do
-            local b = self.b[key] or 1
-            local c = self.c[key]
-            local cknob = (self.cknob - .5) * 2
-            if not c then
-                c = cknob
-            else
-                c = c * cknob
+        for key in pairs(self.invert_a) do
+            if not self.a[key] then
+                self.invert_a[key] = nil
             end
+        end
+
+        for key in all_keys(self.a, self.b, self.c) do
+            local a = self.a[key] or 0
+            local b = self.b[key] or 1
+            local c = self.c[key] or 1
+            local cknob = (self.cknob - .5) * 2
+            c = c * cknob
             self.out[key] = a * b + c
+        end
+
+        for key, value in pairs(self.a) do
+            self.invert_a[key] = 1 - value
         end
     end
 }
@@ -506,6 +558,9 @@ module2 {
 module2 {
     name = 'color',
     parts = {
+        hue_target_knob = {'HT', 'knob'},
+        saturation_target_knob = {'ST', 'knob'},
+        value_target_knob = {'VT', 'knob'},
         hue = {'H', 'port', 'number', 'in'},
         saturation = {'S', 'port', 'number', 'in'},
         value = {'V', 'port', 'number', 'in'},
@@ -515,24 +570,55 @@ module2 {
         output = {'Out', 'port', 'color', 'out'},
     },
     layout = {
+        {'hue_target_knob', 'saturation_target_knob', 'value_target_knob'},
         {'hue', 'saturation', 'value'},
         {'hue_knob', 'saturation_knob', 'value_knob'},
         {'', '', 'output'},
     },
     update = function(self)
         local function f(key)
+            local ht = self.hue_target_knob or 1
+            local st = self.saturation_target_knob or 1
+            local vt = self.value_target_knob or 1
             local h = self.hue[key] or 1
             local s = self.saturation[key] or 1
             local v = self.value[key] or 1
             h = h * self.hue_knob
             s = s * self.saturation_knob
             v = v * self.value_knob
-            self.output[key] = {Utils.hsv(h, s, v)}
+            local hout = (ht * (1 - self.hue_knob)) + (h * self.hue_knob)
+            local sout = (st * (1 - self.saturation_knob)) + (s * self.saturation_knob)
+            local vout = (vt * (1 - self.value_knob)) + (v * self.value_knob)
+            self.output[key] = {Utils.hsv(hout, sout, vout)}
         end
         for key in all_keys(self.hue, self.saturation, self.value) do
             f(key)
         end
         f('default')
+    end
+}
+
+module2 {
+    name = 'simplex',
+    parts = {
+        roughness = {'Rough', 'knob'},
+        vectors = {'V', 'port', 'vector', 'in'},
+        drift = {'Drift', 'knob', 'number'},
+        output = {'Out', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'vectors', ''},
+        {'drift', 'roughness'},
+        {'', 'output'}
+    },
+    update = function(self, dt)
+        local rough = self.roughness * 10
+        self._drift = self._drift or 0
+        self._drift = self._drift + dt * self.drift
+        for key, value in pairs(self.vectors) do
+            self.output[key] = love.math.noise(value.x * rough, value.y * rough, self._drift)
+        end
+        self.output.default = love.math.noise(self._drift * rough)
     end
 }
 
@@ -597,6 +683,22 @@ local function draw_knobs()
         end
         love.graphics.line(knob.x, knob.y, knob.x + ox, knob.y + oy) 
         love.graphics.setColor(1, 1, 1, 1)
+    end
+end
+
+local function draw_buttons()
+    for i=1,#buttons do
+        local button = buttons[i]
+        if button.name then
+            local width = love.graphics.getFont():getWidth(button.name)
+            love.graphics.print(button.name, math.floor(button.x - width / 2), button.y + 10)
+        end
+
+        local mode = 'line'
+        if button.value then
+            mode = 'fill'
+        end
+        love.graphics.circle(mode, button.x, button.y, BUTTON_RADIUS)
     end
 end
 
@@ -686,6 +788,18 @@ local function get_hovering_knob_id()
     return nil
 end
 
+local function get_hovering_button_id()
+    local mx, my = love.mouse.getPosition()
+    local mp = {x=mx, y=my}
+    for i=1,#buttons do
+        local button = buttons[i]
+        if point_in(mp, button, BUTTON_RADIUS) then
+            return i
+        end
+    end
+    return nil
+end
+
 local function update_ports()
     for k, v in pairs(ports) do
         v.cell = v.own_cell
@@ -712,9 +826,11 @@ function love.load()
     rack('guys')
     rack('death')
     rack('touch')
+    rack('simplex')
     rack('color')
     rack('circles')
     rack('circles')
+    rack('math')
     
     update_ports()
     for i=1,#modules do
@@ -767,6 +883,7 @@ function love.draw(dt)
 
         draw_ports()
         draw_knobs()
+        draw_buttons()
         draw_connections()
 
         if clicking_port then
@@ -805,6 +922,7 @@ end
 function love.mousepressed(x, y, which)
     if which == 1 then
         clicking_port = get_hovering_port_id()
+        clicking_button = get_hovering_button_id()
 
         if clicking_port then
             -- immediatly disconnect
@@ -829,6 +947,9 @@ function love.mousepressed(x, y, which)
             else
                 clicking_port = holding_connections[1]
             end
+        elseif clicking_button then
+            local button = buttons[clicking_button]
+            button.value = not button.value
         else
             local sw, sh = love.graphics.getDimensions()
             local mx, my = love.mouse.getPosition()
