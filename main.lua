@@ -5,6 +5,11 @@ local PORT_RADIUS = 10
 local KNOB_RADIUS = 8
 local BUTTON_RADIUS = 9
 
+local CELL_WIDTH = 50
+local CELL_HEIGHT = 60
+local GRID_WIDTH = 0 -- filled in in load
+local GRID_HEIGHT = 0 -- filled in in load
+
 local module_types = {}
 local modules = {}
 local ports = {}
@@ -93,7 +98,7 @@ local function vmag(v)
     return math.sqrt(v.x * v.x + v.y * v.y)
 end
 
-local function module2_part(part, x, y)
+local function module_part(part, x, y)
     local name, part_type = part[1], part[2]
     local output = {x=x, y=y, name=name, part_type=part_type}
     if part_type == 'port' then
@@ -117,8 +122,14 @@ local function module2_part(part, x, y)
     return output
 end
 
-local mx = 0
-local my = 0
+local gmx = 0
+local gmy = 0
+
+local function find_module_place(width, height)
+    -- TODO
+    return gmx, gmy
+end
+
 local function rack(name)
     if not module_types[name] then
         error("No such module: " .. name)
@@ -131,38 +142,34 @@ local function rack(name)
         template[k] = t[k]
     end
 
-    local mw = #template.layout[1] * 40
-    local mh = #template.layout[1] * 50
-
-    if mx + mw > love.graphics.getWidth() then
-        mx = 0
-        my = my + mh
+    if gmx > GRID_WIDTH then
+        gmx = 0
+        gmy = gmy + 4
     end
+
+    local mw, mh = #template.layout[1], #template.layout
+    local mx, my = find_module_place(mw, mh)
 
     template.target = {}
     template.x = mx
     template.y = my
+
+    gmx = gmx + mw + 1
     
     local new_parts = {}
     local yoffset = my
     for ly=1,#template.layout do
-        if ly == 1 then
-            yoffset = yoffset + 30
-        else
-            yoffset = yoffset + 40
-        end
-
         local row = template.layout[ly]
         for lx=1,#row do
             local key = row[lx]
             local part = template.parts[key]
             if part then
-                new_parts[key] = module2_part(part, mx + lx * 30, yoffset)
+                new_parts[key] = module_part(part, lx, ly)
+            elseif key ~= '' then
+                error("Unknown part in layout: " .. key)
             end
         end
     end
-
-    mx = mx + mw
 
     for k in pairs(template.parts) do
         if not new_parts[k] then
@@ -174,7 +181,7 @@ local function rack(name)
     table.insert(modules, template)
 end
 
-local function module2(template)
+local function module(template)
     module_types[template.name] = template
 end
 
@@ -199,7 +206,7 @@ local function visit_module(module, method, ...)
     end
 end
 
-module2 {
+module {
     name = 'circles',
     parts = {
         points = {'V', 'port', 'vector'},
@@ -229,7 +236,7 @@ module2 {
 }
 
 local mclicks = Cell()
-module2 {
+module {
     name = 'mouse',
     parts = {
         clicks = {'CLK', 'port', 'vector', 'out'},
@@ -271,7 +278,7 @@ local function touch_radius(r, rk)
     return r or 1 * .1 * rk
 end
 
-module2 {
+module {
     name = 'touch',
     parts = {
         a_positions = {'A', 'port', 'vector', 'in'},
@@ -358,7 +365,7 @@ module2 {
     end
 }
 
-module2 {
+module {
     name = 'grid',
     parts = {
         resolution = {'Res', 'port', 'number', 'in'},
@@ -395,7 +402,7 @@ module2 {
     end
 }
 
-module2 {
+module {
     name = 'guys',
     parts = {
         positions = {'V', 'port', 'vector', 'in'},
@@ -472,7 +479,7 @@ module2 {
     end
 }
 
-module2 {
+module {
     name = 'death',
     parts = {
         members = {'Input', 'port', '*', 'in'},
@@ -513,7 +520,7 @@ module2 {
 }
 
 -- output = a in + c
-module2 {
+module {
     name = 'math',
     parts = {
         a = {'A', 'port', 'number', 'in'},
@@ -556,7 +563,7 @@ module2 {
     end
 }
 
-module2 {
+module {
     name = 'color',
     parts = {
         hue_target_knob = {'HT', 'knob'},
@@ -599,7 +606,7 @@ module2 {
     end
 }
 
-module2 {
+module {
     name = 'simplex',
     parts = {
         roughness = {'Rough', 'knob'},
@@ -838,7 +845,12 @@ end
 function love.load()
     setup_vim_binds()
     love.window.setMode(1024, 768)
+
     NORM_FACTOR, _ = love.graphics.getDimensions()
+    local ww, wh = love.graphics.getDimensions()
+    GRID_WIDTH = ww / CELL_WIDTH
+    GRID_HEIGHT = wh / CELL_HEIGHT
+
     screen = love.graphics.newCanvas()
 
     -- Rack the modules we want
@@ -900,10 +912,12 @@ function love.draw(dt)
     if not fullscreen then
         for i=1,#modules do
             local module = modules[i]
-            love.graphics.print(module.name, module.x, module.y)
-            local mw = #module.layout[1] * 40
-            local mh = #module.layout * 50
-            love.graphics.rectangle('line', module.x, module.y, mw, mh)
+            local mw = (#module.layout[1] + 1) * CELL_WIDTH
+            local mh = (#module.layout + 1) * CELL_HEIGHT
+            local mx = module.x * CELL_WIDTH
+            local my = module.y * CELL_HEIGHT
+            love.graphics.print(module.name, mx, my)
+            love.graphics.rectangle('line', mx, my, mw, mh)
         end
 
         draw_ports()
