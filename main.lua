@@ -1,6 +1,6 @@
 local Utils = require "utils"
+local vim = require "vim"
 
-local T = love.timer.getTime()
 local PORT_RADIUS = 10
 local KNOB_RADIUS = 8
 local BUTTON_RADIUS = 9
@@ -26,6 +26,7 @@ local NORM_FACTOR = 600
 local SLACK = 30
 
 local fullscreen = false
+local playing = true
 
 local function types_match(t1, t2)
     return t1 == t2 or t1 == '*' or t2 == '*'
@@ -705,8 +706,13 @@ end
 local function draw_connections()
     for i=1,#edges do
         local conn = edges[i]
+        local p1 = ports[conn[1]]
+        local p2 = ports[conn[2]]
+        local d = math.sqrt(math.pow(p1.x - p2.x, 2) + math.pow(p1.y - p2.y, 2))
+        love.graphics.setColor(Utils.hsv(d / 800, 1, 1))
         love.graphics.line(conn.curve:render(3))
     end
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 local function get_connection_id(pid1, pid2)
@@ -815,7 +821,22 @@ local function update_ports()
     end
 end
 
+
+local function setup_vim_binds()
+    vim.init()
+    vim.bind("normal", "a", function()
+        vim.enter_textinput("Module name?", "", function(name)
+            if module_types[name] then
+                rack(name)
+            else
+                vim.show_message("No such module: " .. name)
+            end
+        end)
+    end)
+end
+
 function love.load()
+    setup_vim_binds()
     love.window.setMode(1024, 768)
     NORM_FACTOR, _ = love.graphics.getDimensions()
     screen = love.graphics.newCanvas()
@@ -840,11 +861,11 @@ function love.load()
 end
 
 function love.update(dt)
-    T = T + dt
-
-    for i=1,#modules do
-        local module = modules[i]
-        visit_module(module, 'update', dt)
+    if playing then
+        for i=1,#modules do
+            local module = modules[i]
+            visit_module(module, 'update', dt)
+        end
     end
 
     if tweaking_port then
@@ -868,6 +889,10 @@ function love.keypressed(key)
 
     if key == 'f' then
         fullscreen = not fullscreen
+    end
+
+    if key == 'space' then
+        playing = not playing
     end
 end
 
@@ -917,6 +942,19 @@ function love.draw(dt)
         visit_module(modules[i], 'draw')
     end
     love.graphics.setCanvas(nil)
+
+    local ww, wh = love.graphics.getDimensions()
+    if playing then
+        local TRI_SIZE = 10
+        local lx = ww - TRI_SIZE
+        local ly = TRI_SIZE
+        local my = TRI_SIZE / 2
+        love.graphics.polygon('fill', lx, 0, lx, ly, ww, my)
+    else
+        local font = love.graphics.getFont()
+        local width = font:getWidth('||')
+        love.graphics.print('||', ww - width, 0)
+    end
 end
 
 function love.mousepressed(x, y, which)
@@ -962,6 +1000,9 @@ function love.mousepressed(x, y, which)
             local key = 'click_' .. _click_id
             mclicks[key] = {x=x2, y=y2}
             _click_id = _click_id + 1
+            mclicks.default = mclicks.default or {}
+            mclicks.default.x = x2
+            mclicks.default.y = y2
         end
     end
 end
@@ -992,4 +1033,3 @@ function love.wheelmoved(x, y)
         knob.value = math.min(math.max(knob.value + (y / 20), 0), 1)
     end
 end
-
