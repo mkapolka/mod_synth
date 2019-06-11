@@ -5,8 +5,8 @@ local PORT_RADIUS = 10
 local KNOB_RADIUS = 8
 local BUTTON_RADIUS = 9
 
-local CELL_WIDTH = 50
-local CELL_HEIGHT = 60
+local CELL_WIDTH = 35
+local CELL_HEIGHT = 40
 local GRID_WIDTH = 0 -- filled in in load
 local GRID_HEIGHT = 0 -- filled in in load
 
@@ -67,6 +67,36 @@ end
 
 local function denorm_point(x, y)
     return x * NORM_FACTOR + NORM_FACTOR / 2, y * NORM_FACTOR + NORM_FACTOR / 2
+end
+
+local function module_dimensions(module)
+    local x = module.x * CELL_WIDTH
+    local y = module.y * CELL_HEIGHT
+    local w = (#module.layout[1] + 1) * CELL_WIDTH
+    local h = (#module.layout + 1) * CELL_HEIGHT
+    return x, y, w, h
+end
+
+local function part_screen_position(module, part)
+    return (module.x + part.x + 1) * CELL_WIDTH, (module.y + part.y + 1) * CELL_HEIGHT
+end
+
+local function part_keys_equal(pk1, pk2)
+    return pk1[1] == pk2[1] and pk1[2] == pk2[2]
+end
+
+local function get_part(part_id)
+    if part_id then
+        local module = modules[part_id[1]]
+        return module.parts[part_id[2]]
+    end
+    return nil
+end
+
+local function reify_pid(part_id)
+    local module = modules[part_id[1]]
+    local part = module.parts[part_id[2]]
+    return module, part
 end
 
 -- iterator that returns all the keys in the given collections
@@ -164,7 +194,7 @@ local function rack(name)
             local key = row[lx]
             local part = template.parts[key]
             if part then
-                new_parts[key] = module_part(part, lx, ly)
+                new_parts[key] = module_part(part, lx-1, ly-1)
             elseif key ~= '' then
                 error("Unknown part in layout: " .. key)
             end
@@ -636,86 +666,87 @@ local function point_in(point, p2, r)
     return dx * dx + dy * dy < r * r
 end
 
-local function draw_ports()
-    for i=1,#ports do
-        local port = ports[i]
-        local mode = 'line'
-        local mx, my = love.mouse.getPosition()
-        if point_in({x=mx, y=my}, port, PORT_RADIUS) then
-            mode = 'fill'
-        end
-        if port.name then
-            local width = love.graphics.getFont():getWidth(port.name)
-            love.graphics.print(port.name, math.floor(port.x - width / 2), port.y + 10)
-        end
-        local colors = {
-            vector = {1, 1, 1, 1},
-            number = {1, .8, .8, 1},
-            color = {.8, 1, .8, 1},
-        }
-        local color = colors[port.type or ''] or {1, 1, 1, .8}
-        if clicking_port then
-            local clicking = ports[clicking_port]
-            if clicking.output == port.output or not types_match(clicking.type, port.type) then
-                color[4] = .3
-            end
-        end
-        love.graphics.setColor(color)
-        love.graphics.circle(mode, port.x, port.y, PORT_RADIUS)
-        love.graphics.circle(mode, port.x, port.y, PORT_RADIUS / 2)
-        if port.output then
-            local fx, fy = math.floor(port.x), math.floor(port.y)
-            love.graphics.rectangle('line', fx - PORT_RADIUS, fy-PORT_RADIUS, PORT_RADIUS*2, PORT_RADIUS*2)
-        end
-        love.graphics.setColor(1, 1, 1, 1)
+
+local function draw_port(module, port_name)
+    local port = module.parts[port_name]
+    local px, py = part_screen_position(module, port)
+    local mode = 'line'
+    local mx, my = love.mouse.getPosition()
+    if point_in({x=mx, y=my}, {x=px, y=py}, PORT_RADIUS) then
+        mode = 'fill'
     end
+    if port.name then
+        local width = love.graphics.getFont():getWidth(port.name)
+        love.graphics.print(port.name, math.floor(px - width / 2), py + 10)
+    end
+    local colors = {
+        vector = {1, 1, 1, 1},
+        number = {1, .8, .8, 1},
+        color = {.8, 1, .8, 1},
+    }
+    local color = colors[port.type or ''] or {1, 1, 1, .8}
+    if clicking_port then
+        local clicking = get_part(clicking_port)
+        if clicking.output == port.output or not types_match(clicking.type, port.type) then
+            color[4] = .3
+        end
+    end
+    love.graphics.setColor(color)
+    love.graphics.circle(mode, px, py, PORT_RADIUS)
+    love.graphics.circle(mode, px, py, PORT_RADIUS / 2)
+    if port.output then
+        local fx, fy = math.floor(px), math.floor(py)
+        love.graphics.rectangle('line', fx - PORT_RADIUS, fy-PORT_RADIUS, PORT_RADIUS*2, PORT_RADIUS*2)
+    end
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
-local function draw_knobs()
-    for i=1,#knobs do
-        local knob = knobs[i]
-        if knob.name then
-            local width = love.graphics.getFont():getWidth(knob.name)
-            love.graphics.print(knob.name, math.floor(knob.x - width / 2), knob.y + 10)
-        end
-
-        local knob_mode = 'line'
-        local mx, my = love.mouse.getPosition()
-        local hovering = point_in({x=mx, y=my}, knob, KNOB_RADIUS)
-        fill_mode = hovering and 'fill' or 'line'
-        love.graphics.circle(fill_mode, knob.x, knob.y, KNOB_RADIUS)
-        local t = math.pi / 2 + knob.value * math.pi * 2
-        local ox, oy = math.cos(t) * KNOB_RADIUS, math.sin(t) * KNOB_RADIUS
-        if fill_mode == 'fill' then
-            love.graphics.setColor(0, 0, 0, 1)
-        end
-        love.graphics.line(knob.x, knob.y, knob.x + ox, knob.y + oy) 
-        love.graphics.setColor(1, 1, 1, 1)
+local function draw_knob(module, key)
+    local knob = module.parts[key]
+    local kx, ky = part_screen_position(module, knob)
+    if knob.name then
+        local width = love.graphics.getFont():getWidth(knob.name)
+        love.graphics.print(knob.name, math.floor(kx - width / 2), ky + 10)
     end
+
+    local knob_mode = 'line'
+    local mx, my = love.mouse.getPosition()
+    local hovering = point_in({x=mx, y=my}, {x=kx, y=ky}, KNOB_RADIUS)
+    fill_mode = hovering and 'fill' or 'line'
+    love.graphics.circle(fill_mode, kx, ky, KNOB_RADIUS)
+    local t = math.pi / 2 + knob.value * math.pi * 2
+    local ox, oy = math.cos(t) * KNOB_RADIUS, math.sin(t) * KNOB_RADIUS
+    if fill_mode == 'fill' then
+        love.graphics.setColor(0, 0, 0, 1)
+    end
+    love.graphics.line(kx, ky, kx + ox, ky + oy) 
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
-local function draw_buttons()
-    for i=1,#buttons do
-        local button = buttons[i]
-        if button.name then
-            local width = love.graphics.getFont():getWidth(button.name)
-            love.graphics.print(button.name, math.floor(button.x - width / 2), button.y + 10)
-        end
+local function draw_button(module, key)
+    local button = module.parts[key]
+    local bx, by = part_screen_position(module, button)
 
-        local mode = 'line'
-        if button.value then
-            mode = 'fill'
-        end
-        love.graphics.circle(mode, button.x, button.y, BUTTON_RADIUS)
+    if button.name then
+        local width = love.graphics.getFont():getWidth(button.name)
+        love.graphics.print(button.name, math.floor(bx - width / 2), by + 10)
     end
+
+    local mode = 'line'
+    if button.value then
+        mode = 'fill'
+    end
+    love.graphics.circle(mode, bx, by, BUTTON_RADIUS)
 end
 
 local function draw_connections()
     for i=1,#edges do
         local conn = edges[i]
-        local p1 = ports[conn[1]]
-        local p2 = ports[conn[2]]
-        local d = math.sqrt(math.pow(p1.x - p2.x, 2) + math.pow(p1.y - p2.y, 2))
+        local m1, p1 = reify_pid(conn[1])
+        local m2, p2 = reify_pid(conn[2])
+        local p1x, p1y = part_screen_position(m1, p1)
+        local p2x, p2y = part_screen_position(m2, p2)
+        local d = math.sqrt(math.pow(p1x - p2x, 2) + math.pow(p1y - p2y, 2))
         love.graphics.setColor(Utils.hsv(d / 800, 1, 1))
         love.graphics.line(conn.curve:render(3))
     end
@@ -725,7 +756,8 @@ end
 local function get_connection_id(pid1, pid2)
     for i=1,#edges do
         local e = edges[i]
-        if (e[1] == pid1 and e[2] == pid2) or (e[1] == pid2 and e[2] == pid1) then
+        if (part_keys_equal(e[1], pid1) and part_keys_equal(e[2], pid2)) or 
+           (part_keys_equal(e[1], pid2) and part_keys_equal(e[2], pid1)) then
             return i
         end
     end
@@ -742,7 +774,7 @@ local function disconnect_all(pid)
     local to_remove = {}
     for i=1,#edges do
         local e = edges[i]
-        if e[1] == pid or e[2] == pid then
+        if part_keys_equal(e[1], pid) or part_keys_equal(e[2], pid) then
             table.insert(to_remove, i)
         end
     end
@@ -752,76 +784,67 @@ local function disconnect_all(pid)
     end
 end
 
-local function disconnect1(pid)
-    for i=1,#edges do
-        local e = edges[i]
-        if e[1] == pid or e[2] == pid then
-            table.remove(edges, i)
-            return
-        end
-    end
-end
-
 local function connect(pid1, pid2)
     local cid = get_connection_id(pid1, pid2)
     if not cid then
         -- create a new connection
         local connection = {pid1, pid2}
-        local p1 = ports[pid1]
-        local p2 = ports[pid2]
-        local mx, my = (p1.x + p2.x) / 2, (p1.y + p2.y) / 2
+        local m1, p1 = reify_pid(pid1)
+        local m2, p2 = reify_pid(pid2)
+        local p1x, p1y = part_screen_position(m1, p1)
+        local p2x, p2y = part_screen_position(m2, p2)
+        local mx, my = (p1x + p2x) / 2, (p1y + p2y) / 2
         my = my + SLACK
-        local bezier = love.math.newBezierCurve(p1.x, p1.y, mx, my, p2.x, p2.y)
+        local bezier = love.math.newBezierCurve(p1x, p1y, mx, my, p2x, p2y)
         connection.curve = bezier
 
         table.insert(edges, connection)
     end
 end
 
-local function get_hovering_port_id()
-    local mx, my = love.mouse.getPosition()
-    local mp = {x=mx, y=my}
-    for i=1,#ports do
-        if point_in(mp, ports[i], PORT_RADIUS) then
-            return i
+-- return {mod_id, part_id}, part_type
+local function get_hovering_part_id()
+    local x, y = love.mouse.getPosition()
+    local mp = {x=x, y=y}
+    for module_id, module in pairs(modules) do
+        local mx, my, mw, mh = module_dimensions(module)
+        if Utils.point_in_rectangle(x, y, mx, my, mw, mh) then
+            for key, part in pairs(module.parts) do
+                local px, py = part_screen_position(module, part)
+                local pp = {x=px, y=py}
+                local radius = ({
+                    knob=KNOB_RADIUS,
+                    port=PORT_RADIUS,
+                    button=BUTTON_RADIUS,
+                })[part.part_type]
+                if point_in(mp, pp, radius) then
+                    return {module_id, key}, part.part_type
+                end
+            end
         end
     end
-    return nil
 end
 
-local function get_hovering_knob_id()
-    local mx, my = love.mouse.getPosition()
-    local mp = {x=mx, y=my}
-    for i=1,#knobs do
-        local knob = knobs[i]
-        if point_in(mp, knob, KNOB_RADIUS) then
-            return i
-        end
+local function get_hovering_knob()
+    local part_id, part_type = get_hovering_part_id()
+    if part_type == 'knob' then
+        return get_part(part_id)
     end
-    return nil
-end
-
-local function get_hovering_button_id()
-    local mx, my = love.mouse.getPosition()
-    local mp = {x=mx, y=my}
-    for i=1,#buttons do
-        local button = buttons[i]
-        if point_in(mp, button, BUTTON_RADIUS) then
-            return i
-        end
-    end
-    return nil
 end
 
 local function update_ports()
-    for k, v in pairs(ports) do
-        v.cell = v.own_cell
+    for _, m in pairs(modules) do
+        for key, part in pairs(m.parts) do
+            if part.part_type == 'port' then
+                part.cell = part.own_cell
+            end
+        end
     end
 
     for i=1,#edges do
         local edge = edges[i]
-        local left = ports[edge[1]]
-        local right = ports[edge[2]]
+        local left = get_part(edge[1])
+        local right = get_part(edge[2])
         local out_port = left.output and left or right
         local in_port = not left.output and left or right
         in_port.cell = out_port.cell
@@ -879,15 +902,6 @@ function love.update(dt)
             visit_module(module, 'update', dt)
         end
     end
-
-    if tweaking_port then
-        local cell = ports[tweaking_port].cell
-        cell.default = cell.default or {x=0, y=0}
-        for k, v in pairs(cell) do
-            v.x = v.x - m2delta.cell.default.x * dt
-            v.y = v.y - m2delta.cell.default.y * dt
-        end
-    end
 end
 
 function love.keypressed(key)
@@ -912,33 +926,32 @@ function love.draw(dt)
     if not fullscreen then
         for i=1,#modules do
             local module = modules[i]
-            local mw = (#module.layout[1] + 1) * CELL_WIDTH
-            local mh = (#module.layout + 1) * CELL_HEIGHT
-            local mx = module.x * CELL_WIDTH
-            local my = module.y * CELL_HEIGHT
-            love.graphics.print(module.name, mx, my)
+            local mx, my, mw, mh = module_dimensions(module)
+            love.graphics.print(module.name, mx + 5, my + 5)
             love.graphics.rectangle('line', mx, my, mw, mh)
+
+            for key, value in pairs(module.parts) do
+                if value.part_type == 'port' then
+                    draw_port(module, key)
+                elseif value.part_type == 'knob' then
+                    draw_knob(module, key)
+                elseif value.part_type == 'button' then
+                    draw_button(module, key)
+                end
+            end
         end
 
-        draw_ports()
-        draw_knobs()
-        draw_buttons()
         draw_connections()
 
         if clicking_port then
             local mx, my = love.mouse.getPosition()
             for i=1,#holding_connections do
-                local port = ports[holding_connections[i]]
-                love.graphics.line(mx, my, port.x, port.y)
+                local hcid = holding_connections[i]
+                local module = modules[hcid[1]]
+                local port = module.parts[hcid[2]]
+                local px, py = part_screen_position(module, port)
+                love.graphics.line(mx, my, px, py)
             end
-        end
-
-        if tweaking_port then
-            local p = ports[tweaking_port]
-            local mx, my = love.mouse.getPosition()
-            love.graphics.line(p.x, p.y, mx, my)
-            local v = p.cell.default
-            love.graphics.print(string.format('%s, %s', v.x, v.y), mx, my)
         end
 
         local sw, sh = love.graphics.getDimensions()
@@ -973,34 +986,34 @@ end
 
 function love.mousepressed(x, y, which)
     if which == 1 then
-        clicking_port = get_hovering_port_id()
-        clicking_button = get_hovering_button_id()
+        clicking, clicking_type = get_hovering_part_id()
 
-        if clicking_port then
+        if clicking_type == 'port' then
             -- immediatly disconnect
-            local cp = ports[clicking_port]
+            clicking_port = clicking
+            local port = get_part(clicking)
             holding_connections = {}
             for i=1,#edges do
                 local edge = edges[i]
-                if edge[1] == clicking_port then
+                if part_keys_equal(edge[1], clicking) then
                     table.insert(holding_connections, edge[2])
                 end
 
-                if edge[2] == clicking_port then
+                if part_keys_equal(edge[2], clicking) then
                     table.insert(holding_connections, edge[1])
                 end
             end
 
-            disconnect_all(clicking_port)
+            disconnect_all(clicking)
             update_ports()
 
             if #holding_connections == 0 then
-                table.insert(holding_connections, clicking_port)
+                table.insert(holding_connections, clicking)
             else
                 clicking_port = holding_connections[1]
             end
-        elseif clicking_button then
-            local button = buttons[clicking_button]
+        elseif clicking_type == 'button' then
+            local button = get_part(clicking)
             button.value = not button.value
         else
             local sw, sh = love.graphics.getDimensions()
@@ -1022,28 +1035,26 @@ function love.mousepressed(x, y, which)
 end
 
 function love.mousereleased(x, y)
-    hovering_port = get_hovering_port_id()
-
-    if hovering_port and clicking_port then
-        local hovering = ports[hovering_port]
-        local clicking = ports[clicking_port]
-        local type1, type2 = hovering.type, clicking.type
-        if types_match(type1, type2) and hovering.output ~= clicking.output then
+    local hovering_pid = get_hovering_part_id()
+    local hovering_part = get_part(hovering_pid)
+    if hovering_part and hovering_part.part_type == 'port' and clicking_port then
+        hovering_part = get_part(hovering_pid) or {}
+        local clicking = get_part(clicking_port)
+        local type1, type2 = hovering_part.type, clicking.type
+        if types_match(type1, type2) and hovering_part.output ~= clicking.output then
             for i=1,#holding_connections do
-                connect(hovering_port, holding_connections[i])
+                connect(hovering_pid, holding_connections[i])
             end
             update_ports()
         end
     end
 
     clicking_port = nil
-    tweaking_port = nil
 end
 
 function love.wheelmoved(x, y)
-    kid = get_hovering_knob_id()
-    if kid then
-        local knob = knobs[kid]
+    local knob = get_hovering_knob()
+    if knob then
         knob.value = math.min(math.max(knob.value + (y / 20), 0), 1)
     end
 end

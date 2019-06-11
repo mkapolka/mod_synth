@@ -15,4 +15,8 @@ function Utils.hsv(h, s, v)
     end return (r+m),(g+m),(b+m)
 end
 
+function Utils.point_in_rectangle(x, y, rx, ry, rw, rh)
+    return x > rx and x < rx + rw and y > ry and y < ry + rh
+end
+
 return Utils
