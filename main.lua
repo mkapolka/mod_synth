@@ -402,12 +402,16 @@ module {
                         else
                             local g = 2 + ((1 - self.gooshiness) * 100)
                             local v = (2.0 / (1.0 + math.exp(-g * (1 - f)))) - 1
-                            touch[k] = math.max(touch[k], v)
-                            touch[j] = math.max(touch[j], v)
+                            local tk = rawget(touch, k) or 0
+                            local tj = rawget(touch, j) or 0
+                            touch[k] = math.max(tk, v)
+                            touch[j] = math.max(tj, v)
                         end
                     else
-                        touch[k] = math.max(touch[k], 0)
-                        touch[j] = math.max(touch[j], 0)
+                        local tk = rawget(touch, k) or 0
+                        local tj = rawget(touch, j) or 0
+                        touch[k] = math.max(tk, 0)
+                        touch[j] = math.max(tj, 0)
                     end
                 end
             end
