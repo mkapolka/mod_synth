@@ -823,19 +823,23 @@ local function disconnect_all(pid)
     end
 end
 
+local function update_bezier(connection)
+    local m1, p1 = reify_pid(connection[1])
+    local m2, p2 = reify_pid(connection[2])
+    local p1x, p1y = part_screen_position(m1, p1)
+    local p2x, p2y = part_screen_position(m2, p2)
+    local mx, my = (p1x + p2x) / 2, (p1y + p2y) / 2
+    my = my + SLACK
+    local bezier = love.math.newBezierCurve(p1x, p1y, mx, my, p2x, p2y)
+    connection.curve = bezier
+end
+
 local function connect(pid1, pid2)
     local cid = get_connection_id(pid1, pid2)
     if not cid then
         -- create a new connection
         local connection = {pid1, pid2}
-        local m1, p1 = reify_pid(pid1)
-        local m2, p2 = reify_pid(pid2)
-        local p1x, p1y = part_screen_position(m1, p1)
-        local p2x, p2y = part_screen_position(m2, p2)
-        local mx, my = (p1x + p2x) / 2, (p1y + p2y) / 2
-        my = my + SLACK
-        local bezier = love.math.newBezierCurve(p1x, p1y, mx, my, p2x, p2y)
-        connection.curve = bezier
+        update_bezier(connection)
 
         table.insert(edges, connection)
     end
@@ -972,6 +976,9 @@ function love.keypressed(key)
             for k2 in pairs(v) do
                 v[k2] = nil
             end
+        end
+        for _, module in pairs(modules) do
+            visit_module(module, 'restart')
         end
     end
 
@@ -1130,6 +1137,11 @@ function love.mousereleased(x, y)
         local mw, mh = module_cell_dimensions(holding_module)
         if can_place_module_at(mcx, mcy, mw, mh) then
             place_module(holding_module, mcx, mcy)
+            for _, edge in pairs(edges) do
+                if edge[1][1] == holding_module.id or edge[2][1] == holding_module.id then
+                    update_bezier(edge)
+                end
+            end
         end
         holding_module = nil
     else
