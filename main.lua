@@ -9,6 +9,7 @@ local CELL_WIDTH = 35
 local CELL_HEIGHT = 40
 local GRID_WIDTH = 0 -- filled in in load
 local GRID_HEIGHT = 0 -- filled in in load
+local GRID = {}
 
 local module_types = {}
 local modules = {}
@@ -17,6 +18,8 @@ local knobs = {}
 local buttons = {}
 local edges = {}
 local cells = {}
+
+local grab_mode = false
 
 local _click_id = 0
 
@@ -155,10 +158,51 @@ end
 local gmx = 0
 local gmy = 0
 
-local function find_module_place(width, height)
-    -- TODO
-    return gmx, gmy
+local function can_place_module_at(x, y, width, height)
+    for w=0,width-1 do
+        for h=0,height-1 do
+            if x+w > GRID_WIDTH-1 or y+h > GRID_HEIGHT-1 or GRID[x+w][y+h] then
+                return false
+            end
+        end
+    end
+    return true
 end
+
+local function find_module_place(width, height)
+    for y=0,GRID_HEIGHT-1 do
+        for x=0,GRID_WIDTH-1 do
+            if can_place_module_at(x, y, width, height) then
+                return x, y
+            end
+        end
+    end
+    return nil
+end
+
+local function place_module(module, x, y)
+    module.x = x
+    module.y = y
+    for w=0,#module.layout[1] do
+        for h=0,#module.layout do
+            GRID[x+w][y+h] = true
+        end
+    end
+end
+
+local function uproot_module(module)
+    local x, y = module.x, module.y
+    for w=0,#module.layout[1] do
+        for h=0,#module.layout do
+            GRID[x+w][y+h] = false
+        end
+    end
+end
+
+local function module_cell_dimensions(module)
+    return #module.layout[1] + 1, #module.layout + 1
+end
+
 
 local function rack(name)
     if not module_types[name] then
@@ -172,19 +216,11 @@ local function rack(name)
         template[k] = t[k]
     end
 
-    if gmx > GRID_WIDTH then
-        gmx = 0
-        gmy = gmy + 4
-    end
-
-    local mw, mh = #template.layout[1], #template.layout
+    local mw, mh = #template.layout[1] + 1, #template.layout + 1
     local mx, my = find_module_place(mw, mh)
 
     template.target = {}
-    template.x = mx
-    template.y = my
-
-    gmx = gmx + mw + 1
+    place_module(template, mx, my)
     
     local new_parts = {}
     local yoffset = my
@@ -209,6 +245,7 @@ local function rack(name)
 
     template.parts = new_parts
     table.insert(modules, template)
+    template.id = #modules
 end
 
 local function module(template)
@@ -218,6 +255,7 @@ end
 local function visit_module(module, method, ...)
     if module[method] then
         local target = module.target
+        target.id = module.id
         for key, v in pairs(module.parts) do
             if v.part_type == 'port' then
                 target[key] = v.cell
@@ -336,14 +374,10 @@ module {
         local brknob = self.b_radii_knob
 
         for k, _ in pairs(touch) do
-            if not a[k] then
+            if not a[k] and not b[k] then
                 touch[k] = nil
-            end
-        end
-
-        for j, _ in pairs(touch) do
-            if not b[j] then
-                touch[j] = nil
+            else
+                touch[k] = 0
             end
         end
 
@@ -368,12 +402,12 @@ module {
                         else
                             local g = 2 + ((1 - self.gooshiness) * 100)
                             local v = (2.0 / (1.0 + math.exp(-g * (1 - f)))) - 1
-                            touch[k] = v
-                            touch[j] = v
+                            touch[k] = math.max(touch[k], v)
+                            touch[j] = math.max(touch[j], v)
                         end
                     else
-                        touch[k] = 0
-                        touch[j] = 0
+                        touch[k] = math.max(touch[k], 0)
+                        touch[j] = math.max(touch[j], 0)
                     end
                 end
             end
@@ -384,13 +418,18 @@ module {
             for k, v in pairs(self.a_positions) do
                 local x, y = denorm_point(v.x, v.y)
                 local r = touch_radius(self.a_radii[k], self.a_radii_knob)
+                local t = self.touches[k]
+                love.graphics.setColor(1, 1-t, 1-t, 1)
                 love.graphics.circle('line', x, y, r * NORM_FACTOR)
             end
             for k, v in pairs(self.b_positions) do
                 local x, y = denorm_point(v.x, v.y)
                 local r = touch_radius(self.b_radii[k], self.b_radii_knob)
+                local t = self.touches[k]
+                love.graphics.setColor(1, 1-t, 1-t, 1)
                 love.graphics.circle('line', x, y, r * NORM_FACTOR)
             end
+            love.graphics.setColor(1, 1, 1, 1)
         end
     end
 }
@@ -416,7 +455,7 @@ module {
             for y = 0,ry do
                 local fx = (x / rx) * 2 - 1
                 local fy = (y / ry) * 2 - 1
-                local key = 'grid_' .. (x * rx + y)
+                local key = 'grid_' .. self.id .. '_' .. (x * rx + y)
                 local p = self.points[key] or {}
                 p.x = fx
                 p.y = fy
@@ -802,6 +841,23 @@ local function connect(pid1, pid2)
     end
 end
 
+local function get_hovering_module_id()
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    for key, module in pairs(modules) do
+        local mx, my, mw, mh = module_dimensions(module)
+        if Utils.point_in_rectangle(mouse_x, mouse_y, mx, my, mw, mh) then
+            return key
+        end
+    end
+end
+
+local function get_hovering_module()
+    local module_id = get_hovering_module_id()
+    if module_id then
+        return modules[module_id]
+    end
+end
+
 -- return {mod_id, part_id}, part_type
 local function get_hovering_part_id()
     local x, y = love.mouse.getPosition()
@@ -871,8 +927,14 @@ function love.load()
 
     NORM_FACTOR, _ = love.graphics.getDimensions()
     local ww, wh = love.graphics.getDimensions()
-    GRID_WIDTH = ww / CELL_WIDTH
-    GRID_HEIGHT = wh / CELL_HEIGHT
+    GRID_WIDTH = math.floor(ww / CELL_WIDTH)
+    GRID_HEIGHT = math.floor(wh / CELL_HEIGHT)
+    for x=0,GRID_WIDTH-1 do
+        GRID[x] = {}
+        for y=0,GRID_HEIGHT-1 do
+            GRID[x][y] = false
+        end
+    end
 
     screen = love.graphics.newCanvas()
 
@@ -920,6 +982,16 @@ function love.keypressed(key)
     if key == 'space' then
         playing = not playing
     end
+
+    if key == 'g' then
+        grab_mode = not grab_mode
+        if grab_mode then
+            love.mouse.setCursor(love.mouse.getSystemCursor('hand'))
+        else
+            love.mouse.setCursor(love.mouse.getSystemCursor('arrow'))
+            holding_module = nil
+        end
+    end
 end
 
 function love.draw(dt)
@@ -939,6 +1011,18 @@ function love.draw(dt)
                     draw_button(module, key)
                 end
             end
+        end
+
+        if holding_module then
+            local mx, my = love.mouse.getPosition()
+            local mcx, mcy = math.floor(mx / CELL_WIDTH), math.floor(my / CELL_HEIGHT)
+            local mw, mh = module_cell_dimensions(holding_module)
+            if can_place_module_at(mcx, mcy, mw, mh) then
+                love.graphics.setColor(0, 1, 0, 1)
+            else
+                love.graphics.setColor(1, 0, 0, 1)
+            end
+            love.graphics.rectangle('fill', mcx * CELL_WIDTH, mcy * CELL_HEIGHT, mw * CELL_WIDTH, mh * CELL_HEIGHT)
         end
 
         draw_connections()
@@ -985,7 +1069,13 @@ function love.draw(dt)
 end
 
 function love.mousepressed(x, y, which)
-    if which == 1 then
+    if grab_mode then
+        local module = get_hovering_module()
+        if module then
+            holding_module = module
+            uproot_module(module)
+        end
+    elseif which == 1 then
         clicking, clicking_type = get_hovering_part_id()
 
         if clicking_type == 'port' then
@@ -1035,17 +1125,26 @@ function love.mousepressed(x, y, which)
 end
 
 function love.mousereleased(x, y)
-    local hovering_pid = get_hovering_part_id()
-    local hovering_part = get_part(hovering_pid)
-    if hovering_part and hovering_part.part_type == 'port' and clicking_port then
-        hovering_part = get_part(hovering_pid) or {}
-        local clicking = get_part(clicking_port)
-        local type1, type2 = hovering_part.type, clicking.type
-        if types_match(type1, type2) and hovering_part.output ~= clicking.output then
-            for i=1,#holding_connections do
-                connect(hovering_pid, holding_connections[i])
+    if holding_module then
+        local mcx, mcy = math.floor(x / CELL_WIDTH), math.floor(y / CELL_HEIGHT)
+        local mw, mh = module_cell_dimensions(holding_module)
+        if can_place_module_at(mcx, mcy, mw, mh) then
+            place_module(holding_module, mcx, mcy)
+        end
+        holding_module = nil
+    else
+        local hovering_pid = get_hovering_part_id()
+        local hovering_part = get_part(hovering_pid)
+        if hovering_part and hovering_part.part_type == 'port' and clicking_port then
+            hovering_part = get_part(hovering_pid) or {}
+            local clicking = get_part(clicking_port)
+            local type1, type2 = hovering_part.type, clicking.type
+            if types_match(type1, type2) and hovering_part.output ~= clicking.output then
+                for i=1,#holding_connections do
+                    connect(hovering_pid, holding_connections[i])
+                end
+                update_ports()
             end
-            update_ports()
         end
     end
 
