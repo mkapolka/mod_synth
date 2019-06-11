@@ -1124,6 +1124,15 @@ function love.draw(dt)
     end
 end
 
+local function add_click(x, y)
+    local key = 'click_' .. _click_id
+    _click_id = _click_id + 1
+    if mclicks.default then
+        mclicks[key] = mclicks.default
+    end
+    mclicks.default = {x=x, y=y}
+end
+
 function love.mousepressed(x, y, which)
     if grab_mode then
         local module = get_hovering_module()
@@ -1132,50 +1141,50 @@ function love.mousepressed(x, y, which)
             uproot_module(module)
         end
     elseif which == 1 then
-        clicking, clicking_type = get_hovering_part_id()
-
-        if clicking_type == 'port' then
-            -- immediatly disconnect
-            clicking_port = clicking
-            local port = get_part(clicking)
-            holding_connections = {}
-            for i=1,#edges do
-                local edge = edges[i]
-                if part_keys_equal(edge[1], clicking) then
-                    table.insert(holding_connections, edge[2])
-                end
-
-                if part_keys_equal(edge[2], clicking) then
-                    table.insert(holding_connections, edge[1])
-                end
-            end
-
-            disconnect_all(clicking)
-            update_ports()
-
-            if #holding_connections == 0 then
-                table.insert(holding_connections, clicking)
-            else
-                clicking_port = holding_connections[1]
-            end
-        elseif clicking_type == 'button' then
-            local button = get_part(clicking)
-            button.value = not button.value
-        else
-            local sw, sh = love.graphics.getDimensions()
+        if fullscreen then
             local mx, my = love.mouse.getPosition()
-            if not fullscreen then
-                mx = (mx - (2 * sw / 3)) * 3
-                my = (my - (2 * sh / 3)) * 3
-            end
+            add_click(norm_point(mx, my))
+        else
+            clicking, clicking_type = get_hovering_part_id()
 
-            local x2, y2 = norm_point(mx, my)
-            local key = 'click_' .. _click_id
-            mclicks[key] = {x=x2, y=y2}
-            _click_id = _click_id + 1
-            mclicks.default = mclicks.default or {}
-            mclicks.default.x = x2
-            mclicks.default.y = y2
+            if clicking_type == 'port' then
+                -- immediatly disconnect
+                clicking_port = clicking
+                local port = get_part(clicking)
+                holding_connections = {}
+                for i=1,#edges do
+                    local edge = edges[i]
+                    if part_keys_equal(edge[1], clicking) then
+                        table.insert(holding_connections, edge[2])
+                    end
+
+                    if part_keys_equal(edge[2], clicking) then
+                        table.insert(holding_connections, edge[1])
+                    end
+                end
+
+                disconnect_all(clicking)
+                update_ports()
+
+                if #holding_connections == 0 then
+                    table.insert(holding_connections, clicking)
+                else
+                    clicking_port = holding_connections[1]
+                end
+            elseif clicking_type == 'button' then
+                local button = get_part(clicking)
+                button.value = not button.value
+            else
+                local sw, sh = love.graphics.getDimensions()
+                local mx, my = love.mouse.getPosition()
+                if not fullscreen then
+                    mx = (mx - (2 * sw / 3)) * 3
+                    my = (my - (2 * sh / 3)) * 3
+                end
+
+                local x2, y2 = norm_point(mx, my)
+                add_click(x2, y2)
+            end
         end
     end
 end
