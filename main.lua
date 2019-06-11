@@ -703,6 +703,51 @@ module {
     end
 }
 
+module {
+    name = 'lfo',
+    parts = {
+        ids = {'Id', 'port', '*', 'in'},
+        sin = {'Sin', 'button'},
+        freq = {'F', 'knob', 'number'},
+        out = {'Out', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'ids', 'freq'},
+        {'sin', 'out'},
+    },
+    restart = function(self)
+        self._offsets = {}
+    end,
+    update = function(self, dt)
+        self._offsets = self._offsets or {}
+
+        for key in pairs(self.out) do
+            if key ~= 'default' and not self.ids[key] then
+                self._offsets[key] = nil
+                self.out[key] = nil
+            end
+        end
+
+        local function f(key)
+            local offset = self._offsets[key] or 0
+            local freq = self.freq
+            self._offsets[key] = offset + dt * freq
+            offset = self._offsets[key]
+            if self.sin then
+                self.out[key] = 1 + math.sin(offset * math.pi) / 2
+            else
+                self.out[key] = offset % 1
+            end
+        end
+        for key in pairs(self.ids) do
+            f(key)
+        end
+        if not self.ids.default then
+            f('default')
+        end
+    end
+}
+
 local function point_in(point, p2, r)
     local dx = point.x - p2.x
     local dy = point.y - p2.y
