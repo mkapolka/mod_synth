@@ -152,7 +152,10 @@ function vim.update()
     ti = nil
     kd = nil
 
-    if MOUSE_DOWN[1] and MODE == "awaitclick" then
+end
+
+function vim.mousepressed(x, y, which)
+    if which == 1 and MODE == "awaitclick" then
         MODE = "normal"
         vim_pcall(awaitclick.callback, love.mouse:getPosition())
     end
@@ -223,6 +226,7 @@ function vim.init()
     love.update = post_hook(love.update, vim.update)
     love.keypressed = post_hook(love.keypressed, vim.keydown)
     love.textinput = post_hook(love.textinput, vim.textinput)
+    love.mousepressed = post_hook(love.mousepressed, vim.mousepressed)
     love.draw = post_hook(love.draw, vim.draw)
 end
 

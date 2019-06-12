@@ -19,4 +19,28 @@ function Utils.point_in_rectangle(x, y, rx, ry, rw, rh)
     return x > rx and x < rx + rw and y > ry and y < ry + rh
 end
 
+function Utils.norm_point(x, y)
+    return (x - NORM_FACTOR / 2) / NORM_FACTOR, (y - NORM_FACTOR / 2) / NORM_FACTOR
+end
+
+function Utils.denorm_point(x, y)
+    return x * NORM_FACTOR + NORM_FACTOR / 2, y * NORM_FACTOR + NORM_FACTOR / 2
+end
+
+-- iterator that returns all the keys in the given collections
+-- TODO: Optimize this into a proper iterator
+function Utils.all_keys(...)
+    local keys = {}
+    for i, collection in pairs({...}) do
+        for key, _ in pairs(collection) do
+            keys[key] = true
+        end
+        if collection.default then
+            keys.default = true
+        end
+    end
+    return pairs(keys)
+end
+
+
 return Utils
