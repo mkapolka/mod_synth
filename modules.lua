@@ -49,16 +49,21 @@ module {
     end,
     update = function(self, dt)
         for k, v in pairs(self.clicks) do
+            k = self.id .. k
             if not mclicks[k] then
                 self.clicks[k] = nil
             end
         end
 
         for k, v in pairs(mclicks) do
+            k = self.id .. k
             self.clicks[k] = v
         end
+        self.clicks.default = mclicks.default
 
         self.position.default = self.position.default or {}
+        self.position.point = self.position.point or {}
+
         local mx, my = love.mouse.getPosition()
         if not fullscreen then
             local sw, sh = love.graphics.getDimensions()
@@ -68,6 +73,8 @@ module {
         local nx, ny = Utils.norm_point(mx, my)
         self.position.default.x = nx
         self.position.default.y = ny
+        self.position.point.x = nx
+        self.position.point.y = ny
     end
 }
 

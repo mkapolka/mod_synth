@@ -34,7 +34,7 @@ local screen = nil
 NORM_FACTOR = 600
 SLACK = 30
 
-local fullscreen = false
+fullscreen = false
 local playing = true
 local clear_color = {0, 0, 0, 1}
 
@@ -43,14 +43,15 @@ local function types_match(t1, t2)
 end
 
 local function Cell(default)
-    local output = setmetatable({
-        default=default
-    }, {
+    local output = setmetatable({}, {
         __index = function(self, key)
-            if rawget(self, 'default') then
-                return self.default
+            return default
+        end,
+        __newindex = function(self, key, value)
+            if key == 'default' then
+                default = value
             else
-                return nil
+                rawset(self, key, value)
             end
         end
     })
@@ -104,10 +105,6 @@ local function get_cells(...)
         output[k] = v.cell
     end
     return unpack(output)
-end
-
-local function vmag(v)
-    return math.sqrt(v.x * v.x + v.y * v.y)
 end
 
 local function module_part(part, x, y)
@@ -360,7 +357,7 @@ local function draw_connections()
         local p1x, p1y = part_screen_position(m1, p1)
         local p2x, p2y = part_screen_position(m2, p2)
         local d = math.sqrt(math.pow(p1x - p2x, 2) + math.pow(p1y - p2y, 2))
-        love.graphics.setColor(Utils.hsv(d / 800, 1, 1))
+        love.graphics.setColor(Utils.hsv(d / 800, .5, 1))
         love.graphics.line(conn.curve:render(3))
     end
     love.graphics.setColor(1, 1, 1, 1)
@@ -570,6 +567,7 @@ local function setup_vim_binds()
             local module_id = get_hovering_module_id()
             if module_id then
                 delete_module(module_id)
+                update_ports()
             end
         end)
     end)
@@ -706,10 +704,10 @@ end
 local function add_click(x, y)
     local key = 'click_' .. _click_id
     _click_id = _click_id + 1
-    if mclicks.default then
-        mclicks[key] = mclicks.default
-    end
-    mclicks.default = {x=x, y=y}
+    mclicks.default = mclicks.default or {}
+    mclicks.default.x = x
+    mclicks.default.y = y
+    mclicks[key] = {x=x, y=y}
 end
 
 function love.mousepressed(x, y, which)
