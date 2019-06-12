@@ -55,12 +55,12 @@ local function count_in_progress()
 end
 
 local function keydown_normal(key)
-    if key == "s" then
+    --[[if key == "s" then
         -- cmd-s
         if holding_cmd() then
             vim.methods.save()
         end
-    end
+    end]]--
 end
 
 local function key_valid(key)

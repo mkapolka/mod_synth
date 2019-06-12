@@ -1,5 +1,6 @@
 local Utils = require "utils"
 local vim = require "vim"
+local binser = require "binser"
 
 local PORT_RADIUS = 10
 local KNOB_RADIUS = 8
@@ -35,6 +36,7 @@ local SLACK = 30
 
 local fullscreen = false
 local playing = true
+local clear_color = {0, 0, 0, 1}
 
 local function types_match(t1, t2)
     return t1 == t2 or t1 == '*' or t2 == '*'
@@ -203,21 +205,24 @@ local function module_cell_dimensions(module)
     return #module.layout[1] + 1, #module.layout + 1
 end
 
-
-local function rack(name)
+local function rack(name, mx, my)
     if not module_types[name] then
-        error("No such module: " .. name)
+        error("No such module: " .. tostring(name))
     end
     local t = module_types[name]
 
-    local template = {}
+    local template = {
+        module_type = name
+    }
     -- Clone the template
     for k, v in pairs(t) do
         template[k] = t[k]
     end
 
-    local mw, mh = #template.layout[1] + 1, #template.layout + 1
-    local mx, my = find_module_place(mw, mh)
+    if not mx then
+        local mw, mh = #template.layout[1] + 1, #template.layout + 1
+        mx, my = find_module_place(mw, mh)
+    end
 
     template.target = {}
     place_module(template, mx, my)
@@ -642,35 +647,43 @@ module {
         hue_target_knob = {'HT', 'knob'},
         saturation_target_knob = {'ST', 'knob'},
         value_target_knob = {'VT', 'knob'},
+        alpha_target_knob = {'AT', 'knob'},
         hue = {'H', 'port', 'number', 'in'},
         saturation = {'S', 'port', 'number', 'in'},
         value = {'V', 'port', 'number', 'in'},
+        alpha = {'A', 'port', 'number', 'in'},
         hue_knob = {'H*', 'knob'},
         saturation_knob = {'S*', 'knob'},
         value_knob = {'V*', 'knob'},
+        alpha_knob = {'A*', 'knob'},
         output = {'Out', 'port', 'color', 'out'},
     },
     layout = {
-        {'hue_target_knob', 'saturation_target_knob', 'value_target_knob'},
-        {'hue', 'saturation', 'value'},
-        {'hue_knob', 'saturation_knob', 'value_knob'},
-        {'', '', 'output'},
+        {'hue_target_knob', 'saturation_target_knob', 'value_target_knob', 'alpha_target_knob'},
+        {'hue', 'saturation', 'value', 'alpha'},
+        {'hue_knob', 'saturation_knob', 'value_knob', 'alpha_knob'},
+        {'', '', '', 'output'},
     },
     update = function(self)
         local function f(key)
             local ht = self.hue_target_knob or 1
             local st = self.saturation_target_knob or 1
             local vt = self.value_target_knob or 1
-            local h = self.hue[key] or 1
-            local s = self.saturation[key] or 1
-            local v = self.value[key] or 1
-            h = h * self.hue_knob
-            s = s * self.saturation_knob
-            v = v * self.value_knob
+            local at = self.alpha_target_knob or 1
+            local h = rawget(self.hue, key) or ht
+            local s = rawget(self.saturation, key) or st
+            local v = rawget(self.value, key) or vt
+            local a = rawget(self.alpha, key) or at
+            --h = h * self.hue_knob
+            --s = s * self.saturation_knob
+            --v = v * self.value_knob
+            --a = a * self.alpha_knob
             local hout = (ht * (1 - self.hue_knob)) + (h * self.hue_knob)
             local sout = (st * (1 - self.saturation_knob)) + (s * self.saturation_knob)
             local vout = (vt * (1 - self.value_knob)) + (v * self.value_knob)
-            self.output[key] = {Utils.hsv(hout, sout, vout)}
+            local aout = (at * (1 - self.alpha_knob)) + (a * self.alpha_knob)
+            local r, g, b = Utils.hsv(hout, sout,  vout)
+            self.output[key] = {r, g, b, aout}
         end
         for key in all_keys(self.hue, self.saturation, self.value) do
             f(key)
@@ -748,12 +761,24 @@ module {
     end
 }
 
+module {
+    name = 'clear',
+    parts = {
+        color = {'C', 'port', 'color', 'in'}
+    },
+    layout = {
+        {'color'}
+    },
+    update = function(self)
+        clear_color = self.color.default or {0, 0, 0, 1}
+    end
+}
+
 local function point_in(point, p2, r)
     local dx = point.x - p2.x
     local dy = point.y - p2.y
     return dx * dx + dy * dy < r * r
 end
-
 
 local function draw_port(module, port_name)
     local port = module.parts[port_name]
@@ -960,6 +985,59 @@ local function update_ports()
     end
 end
 
+local function writeSave()
+    local data = {
+        modules = {},
+        edges = {}
+    }
+
+    for key, module in pairs(modules) do
+        local out_module = {
+            module_type = module.module_type,
+            x = module.x,
+            y = module.y,
+            parts = {}
+        }
+
+        for name, part in pairs(module.parts) do
+            if part.part_type == 'knob' or part.part_type == 'button' then
+                out_module.parts[name] = part.value
+            end
+        end
+
+        data.modules[key] = out_module
+    end
+
+    for i=1,#edges do
+        local edge = edges[i]
+        table.insert(data.edges, {edge[1], edge[2]})
+    end
+
+    love.filesystem.write("save", binser.serialize(data))
+end
+
+local function loadSave()
+    local saveString = love.filesystem.read("save")
+    if saveString then
+        local data = binser.deserialize(saveString)[1]
+
+        for key, module in pairs(data.modules) do
+            rack(module.module_type, module.x, module.y)
+
+            if module.parts then
+                local in_module = modules[key]
+                for key, value in pairs(module.parts) do
+                    in_module.parts[key].value = value
+                end
+            end
+        end
+
+        for _, edge in pairs(data.edges) do
+            table.insert(edges, edge)
+            update_bezier(edge)
+        end
+    end
+end
 
 local function setup_vim_binds()
     vim.init()
@@ -971,6 +1049,19 @@ local function setup_vim_binds()
                 vim.show_message("No such module: " .. name)
             end
         end)
+    end)
+
+    vim.bind("normal", "S", function()
+        writeSave()
+        vim.show_message("Saved.")
+    end)
+
+    vim.bind("normal", "f", function()
+        fullscreen = not fullscreen
+    end)
+
+    vim.bind("normal", " ", function()
+        playing = not playing
     end)
 end
 
@@ -991,19 +1082,9 @@ function love.load()
 
     screen = love.graphics.newCanvas()
 
-    -- Rack the modules we want
-    rack('mouse')
-    rack('grid')
-    rack('guys')
-    rack('death')
-    rack('touch')
-    rack('simplex')
-    rack('color')
-    rack('circles')
-    rack('circles')
-    rack('math')
-    
+    loadSave()
     update_ports()
+
     for i=1,#modules do
         local module = modules[i]
         visit_module(module, 'start')
@@ -1029,14 +1110,6 @@ function love.keypressed(key)
         for _, module in pairs(modules) do
             visit_module(module, 'restart')
         end
-    end
-
-    if key == 'f' then
-        fullscreen = not fullscreen
-    end
-
-    if key == 'space' then
-        playing = not playing
     end
 
     if key == 'g' then
@@ -1099,11 +1172,12 @@ function love.draw(dt)
         love.graphics.draw(screen, sw - (sw / 3), sh - (sh / 3), 0, 1/3, 1/3)
 
         love.graphics.setCanvas(screen)
-        love.graphics.clear()
     else -- fullscreen
         local sw, sh = love.graphics.getDimensions()
         love.graphics.rectangle('line', 0, 0, sw, sh)
     end
+
+    love.graphics.clear(clear_color)
 
     for i=1,#modules do
         visit_module(modules[i], 'draw')
