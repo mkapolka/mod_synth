@@ -12,10 +12,11 @@ module {
         color = {'C', 'port', 'color', 'in'},
         radius_knob = {'R', 'knob'},
         fill_mode = {'fill', 'button', default=false},
+        draw_order = {'DO', 'knob'},
     },
     layout = {
         {'points', 'radii', 'color'},
-        {'fill_mode', 'radius_knob', ''}
+        {'fill_mode', 'radius_knob', 'draw_order'}
     },
     draw = function(self)
         for k, v in pairs(self.points) do
@@ -556,12 +557,14 @@ module {
         rotations = {'R', 'port', 'number', 'in'},
         scales = {'S', 'port', 'number', 'in'},
         colors = {'C', 'port', 'color', 'in'},
+        draw_order = {'DO', 'knob'},
         btn_1 = {'Sprite', 'button', default=false},
         btn_2 = {'', 'button', default=false},
         btn_3 = {'', 'button', default=false},
         btn_4 = {'', 'button', default=false},
     },
     layout = {
+        {'draw_order', '', '', ''},
         {'positions', 'rotations', 'scales', 'colors'},
         {'btn_1', 'btn_2', 'btn_3', 'btn_4'},
     },

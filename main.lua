@@ -698,7 +698,30 @@ function love.draw(dt)
 
     love.graphics.clear(clear_color)
 
-    for key, module in pairs(modules) do
+    local draw_modules = {}
+    local i = 1
+    for key, value in pairs(modules) do
+        if value.draw then
+            draw_modules[i] = value
+            i = i + 1
+        end
+    end
+
+    table.sort(draw_modules, function(m1, m2)
+        local o1 = .5
+        local o2 = .5
+        local do_knob = m1.parts.draw_order
+        if do_knob then
+            o1 = do_knob.value
+        end
+        local do_knob = m2.parts.draw_order
+        if do_knob then
+            o2 = do_knob.value
+        end
+        return o1 < o2
+    end)
+
+    for key, module in pairs(draw_modules) do
         visit_module(module, 'draw')
     end
     love.graphics.setCanvas(nil)
@@ -716,6 +739,7 @@ function love.draw(dt)
         love.graphics.print('||', ww - width, 0)
     end
 end
+
 
 local function add_click(x, y)
     local key = 'click_' .. _click_id
