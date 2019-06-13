@@ -68,8 +68,10 @@ module {
         local mx, my = love.mouse.getPosition()
         if not fullscreen then
             local sw, sh = love.graphics.getDimensions()
-            mx = (mx - (2 * sw / 3)) * 3
-            my = (my - (2 * sh / 3)) * 3
+            if mx > 2 * sw / 3 and my > 2 * sh / 3 then
+                mx = (mx - (2 * sw / 3)) * 3
+                my = (my - (2 * sh / 3)) * 3
+            end
         end
         local nx, ny = Utils.norm_point(mx, my)
         self.position.default.x = nx
@@ -217,8 +219,10 @@ module {
     parts = {
         positions = {'V', 'port', 'vector', 'in'},
         targets = {'Targ', 'port', 'vector', 'in'},
-        speed = {'Spd', 'port', 'number', 'in'},
         speed_knob = {'', 'knob', 'number'},
+        acceleration = {'Acc', 'knob'},
+        drag = {'Drg', 'knob'},
+        return_btn = {'RTN', 'button'},
         min_knob = {'MIN', 'knob', 'number', default=0},
         max_knob = {'MAX', 'knob', 'number', default=1},
         positions_out = {'Vout', 'port', 'vector', 'out'},
@@ -227,12 +231,17 @@ module {
         debug = {'DBG', 'button', default=false}
     },
     layout = {
-        {'positions', 'targets', 'speed', 'speed_knob'},
-        {'min_knob', 'max_knob', '', 'respawn'},
-        {'debug', '', 'positions_out', 'distance_out'}
+        {'positions', 'targets', 'speed_knob', 'acceleration'},
+        {'min_knob', 'max_knob', 'drag', 'respawn'},
+        {'debug', 'return_btn', 'positions_out', 'distance_out'}
     },
     start = function(self)
         self.offsets = {}
+        self.velocities = {}
+    end,
+    restart = function(self)
+        self.offsets = {}
+        self.velocities = {}
     end,
     update = function(self, dt)
         for k, v in pairs(self.positions_out) do
@@ -243,17 +252,18 @@ module {
             end
         end
 
-        for k, v in pairs(self.positions) do
+        for k, p in pairs(self.positions) do
             if self.respawn[k] and self.respawn[k] > .8 then
                 self.offsets[k] = {x=0, y=0}
             end
 
-            local speed = (self.speed[k] or 1) * self.speed_knob
+            --local speed = (self.speed[k] or 1) * self.speed_knob
+            local speed = self.speed_knob
             self.offsets[k] = self.offsets[k] or {x=0, y=0}
             local offset = self.offsets[k]
 
-            local guyx = v.x + offset.x
-            local guyy = v.y + offset.y
+            local guyx = p.x + offset.x
+            local guyy = p.y + offset.y
             local target = self.targets[k] or {x=guyx, y=guyy}
 
             local dx = target.x - guyx
@@ -265,16 +275,50 @@ module {
                 max = 100000
             end
 
-            if d < max and d > min then
-                offset.x = offset.x + dx * speed * dt
-                offset.y = offset.y + dy * speed * dt
+            local v = self.velocities[k] or {x=0, y=0}
+
+            -- Avoid if too close
+            local avoid = false
+            if d < min then
+                avoid = true
+                target = {
+                    x = target.x - (dx / d) * min,
+                    y = target.y - (dy / d) * min,
+                }
+                dx = target.x - guyx
+                dy = target.y - guyy
+                d = math.sqrt(dx * dx + dy * dy)
+            elseif d > max and self.return_btn then
+                target = p
+                dx = target.x - guyx
+                dy = target.y - guyy
+                d = math.sqrt(dx * dx + dy * dy)
+                avoid = true
             end
+
+            if (d < max or avoid) and d > .01 then
+                local velocity = math.sqrt(v.x * v.x + v.y * v.y)
+                local rel_vel = dx * v.x + dy * v.y -- dot product
+                if rel_vel < speed * 1 then
+                    v.x = v.x + (dx / d) * (self.acceleration * 10) * dt
+                    v.y = v.y + (dy / d) * (self.acceleration * 10) * dt
+                end
+            end
+
+            local drag = self.drag * 20
+            v.x = v.x - (v.x * drag * dt)
+            v.y = v.y - (v.y * drag * dt)
+
+            self.velocities[k] = v
             self.distance_out[k] = d
+
+            offset.x = offset.x + v.x * dt
+            offset.y = offset.y + v.y * dt
             
             self.positions_out[k] = rawget(self.positions_out, k) or {x=0, y=0}
             local pout = self.positions_out[k]
-            pout.x = v.x + offset.x
-            pout.y = v.y + offset.y
+            pout.x = p.x + offset.x
+            pout.y = p.y + offset.y
         end
     end,
     draw = function(self)
