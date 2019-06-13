@@ -361,7 +361,7 @@ module {
             local a = self.a[key] or 0
             local b = self.b[key] or 1
             local c = self.c[key] or 1
-            local cknob = (self.cknob - .5) * 2
+            local cknob = self.cknob * 2 - 1
             c = c * cknob
             self.out[key] = a * b + c
         end
@@ -420,24 +420,61 @@ module {
 }
 
 module {
+    name = 'color-s',
+    parts = {
+        hue_knob = {'H', 'knob'},
+        saturation_knob = {'S', 'knob'},
+        value_knob = {'V', 'knob'},
+        alpha_knob = {'A', 'knob'},
+        output = {'Out', 'port', 'color', 'out'},
+    },
+    layout = {
+        {'hue_knob', 'saturation_knob', 'value_knob', 'alpha_knob'},
+        {'', '', '', 'output'}
+    },
+    update = function(self, dt)
+        self.output.default = self.output.default or {}
+        local d = self.output.default
+        r, g, b = Utils.hsv(self.hue_knob, self.saturation_knob, self.value_knob)
+        d[1] = r
+        d[2] = g
+        d[3] = b
+        d[4] = self.alpha_knob
+    end
+}
+
+module {
     name = 'simplex',
     parts = {
         roughness = {'Rough', 'knob'},
         vectors = {'V', 'port', 'vector', 'in'},
         drift = {'Drift', 'knob', 'number'},
         output = {'Out', 'port', 'number', 'out'},
+        output_vector = {'OutV', 'port', 'vector', 'out'},
     },
     layout = {
         {'vectors', ''},
         {'drift', 'roughness'},
-        {'', 'output'}
+        {'output', 'output_vector'}
     },
     update = function(self, dt)
         local rough = self.roughness * 10
         self._drift = self._drift or 0
         self._drift = self._drift + dt * self.drift
+
+        for key in pairs(self.output) do
+            if not self.vectors[key] then
+                self.output[key] = nil
+                self.output_vector[key] = nil
+            end
+        end
+
         for key, value in pairs(self.vectors) do
-            self.output[key] = love.math.noise(value.x * rough, value.y * rough, self._drift)
+            local nx, ny = value.x * rough, value.y * rough
+            self.output[key] = love.math.noise(nx, ny, self._drift)
+            local dx = love.math.noise(nx - .5, ny, self._drift) - love.math.noise(nx + .5, ny, self._drift)
+            local dy = love.math.noise(nx, ny - .5, self._drift) - love.math.noise(nx, ny + .5, self._drift)
+            self.output_vector[key] = {x=dx, y=dy}
         end
         self.output.default = love.math.noise(self._drift * rough)
     end
@@ -498,5 +535,144 @@ module {
     },
     update = function(self)
         clear_color = self.color.default or {0, 0, 0, 1}
+    end
+}
+
+local images = {}
+local i = 0
+for line in love.filesystem.lines("images/bank_1") do
+    -- comments
+    if not line:match("^#") then
+        images[i] = love.graphics.newImage("images/" .. line)
+        images[i]:setFilter('nearest')
+        i = i + 1
+    end
+end
+
+module {
+    name = 'sprites',
+    parts = {
+        positions = {'V', 'port', 'vector', 'in'},
+        rotations = {'R', 'port', 'number', 'in'},
+        scales = {'S', 'port', 'number', 'in'},
+        colors = {'C', 'port', 'color', 'in'},
+        btn_1 = {'Sprite', 'button', default=false},
+        btn_2 = {'', 'button', default=false},
+        btn_3 = {'', 'button', default=false},
+        btn_4 = {'', 'button', default=false},
+    },
+    layout = {
+        {'positions', 'rotations', 'scales', 'colors'},
+        {'btn_1', 'btn_2', 'btn_3', 'btn_4'},
+    },
+    draw = function(self)
+        for key, position in pairs(self.positions) do
+            local r = self.rotations[key] or 0
+            local c = self.colors[key] or {1, 1, 1, 1}
+            local s = self.scales[key] or .5
+            s = math.pow(s, 2) * 4
+            local which = 0
+            which = which + (self.btn_1 and 1 or 0)
+            which = which + (self.btn_2 and 2 or 0)
+            which = which + (self.btn_3 and 4 or 0)
+            which = which + (self.btn_4 and 8 or 0)
+            local sx, sy = Utils.denorm_point(position.x, position.y)
+            local sprite = images[which]
+            local sw, sh = sprite:getDimensions()
+            love.graphics.setColor(c)
+            love.graphics.draw(images[which], sx, sy, r * math.pi * 2, s, s, sw / 2, sh / 2)
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+}
+
+local function _toa(target, offset, attenuvert)
+    return (target * (1 - math.abs(attenuvert))) + (offset * attenuvert)
+end
+
+module {
+    name = 'toa',
+    parts = {
+        target_1 = {'T', 'knob'},
+        offset_1 = {'O', 'port', 'number', 'in'},
+        attenuvert_1 = {'*', 'knob', default=.75},
+        output_1 = {'Out', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'target_1'},
+        {'offset_1'},
+        {'attenuvert_1'},
+        {'output_1'},
+    },
+    update = function(self, dt)
+        local at = self.attenuvert_1
+        for key, value in pairs(self.offset_1) do
+            self.output_1[key] = _toa(self.target_1, value, self.attenuvert_1 * 2  - 1)
+        end
+        self.output_1.default = _toa(self.target_1, self.offset_1.default or 0, self.attenuvert_1 * 2  - 1)
+    end
+}
+
+module {
+    name = 'knobs',
+    parts = {
+        knob_1 = {'', 'knob'},
+        range_1 = {'0-1', 'button', default=true},
+        output_1 = {'1', 'port', 'number', 'out'},
+        knob_2 = {'', 'knob'},
+        range_2 = {'0-1', 'button', default=true},
+        output_2 = {'1', 'port', 'number', 'out'},
+        knob_3 = {'', 'knob'},
+        range_3 = {'0-1', 'button', default=true},
+        output_3 = {'1', 'port', 'number', 'out'},
+        knob_4 = {'', 'knob'},
+        range_4 = {'0-1', 'button', default=true},
+        output_4 = {'1', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'knob_1', 'knob_2', 'knob_3', 'knob_4'},
+        {'range_1', 'range_2', 'range_3', 'range_4'},
+        {'output_1', 'output_2', 'output_3', 'output_4'},
+    },
+    update = function(self, dt)
+        for i=1,4 do
+            local v = self['knob_' .. i]
+            if not self['range_' .. i] then
+                v = v * 2 - 1
+            end
+            self['output_' .. i].default = v
+        end
+    end
+}
+
+module {
+    name = 'vector',
+    parts = {
+        vector_1 = {'V1', 'port', 'vector', 'in'},
+        vector_2 = {'V2', 'port', 'vector', 'in'},
+        v2_knob = {'V2*', 'knob'},
+        distance = {'D', 'port', 'number', 'out'},
+        offset = {'+', 'port', 'vector', 'out'},
+    },
+    layout = {
+        {'vector_1', 'vector_2', 'v2_knob'},
+        {'distance', 'offset'},
+    },
+    update = function(self, dt)
+        for key in pairs(self.offset) do
+            if not rawget(self.vector_1, key) and not rawget(self.vector_2, key) then
+                self.offset[key] = nil
+                self.distance[key] = nil
+            end
+        end
+        for key in Utils.all_keys(self.vector_1, self.vector_2) do
+            local v1 = self.vector_1[key] or {x=0, y=0}
+            local v2 = self.vector_2[key] or {x=0, y=0}
+            self.offset[key] = self.offset[key] or {}
+            self.offset[key].x = v1.x + v2.x * self.v2_knob
+            self.offset[key].y = v1.y + v2.y * self.v2_knob
+            local dx, dy = v1.x - v2.x, v1.y - v2.y
+            self.distance[key] = math.sqrt(dx * dx + dy * dy)
+        end
     end
 }

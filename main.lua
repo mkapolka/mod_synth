@@ -36,7 +36,7 @@ SLACK = 30
 
 fullscreen = false
 local playing = true
-local clear_color = {0, 0, 0, 1}
+clear_color = {0, 0, 0, 1}
 
 local function types_match(t1, t2)
     return t1 == t2 or t1 == '*' or t2 == '*'
@@ -179,7 +179,7 @@ local function module_cell_dimensions(module)
     return #module.layout[1] + 1, #module.layout + 1
 end
 
-local function rack(name, mx, my)
+local function rack(name, mx, my, id)
     if not module_types[name] then
         error("No such module: " .. tostring(name))
     end
@@ -223,8 +223,13 @@ local function rack(name, mx, my)
     end
 
     template.parts = new_parts
-    table.insert(modules, template)
-    template.id = #modules
+    if id then
+        modules[id] = template
+        template.id = id
+    else
+        table.insert(modules, template)
+        template.id = #modules
+    end
     return template
 end
 
@@ -264,6 +269,16 @@ local function delete_module(module_id)
     for i=#edges_to_remove,1,-1 do
         print("removing edge", edges_to_remove[i])
         table.remove(edges, edges_to_remove[i])
+    end
+
+    if clicking_port and clicking_port[1] == module_id then
+        clicking_port = nil
+    end
+
+    for i=#holding_connections,1,-1 do
+        if holding_connections[i][1] == module_id then
+            table.remove(holding_connections, i)
+        end
     end
 end
 
@@ -519,7 +534,7 @@ local function loadSave()
         local data = binser.deserialize(saveString)[1]
 
         for key, module in pairs(data.modules) do
-            rack(module.module_type, module.x, module.y)
+            rack(module.module_type, module.x, module.y, key)
 
             if module.parts then
                 local in_module = modules[key]
@@ -563,6 +578,7 @@ local function setup_vim_binds()
     end)
 
     vim.bind("normal", "d", function()
+        fullscreen = false
         vim.enter_awaitclick("Delete which module?", function(x, y)
             local module_id = get_hovering_module_id()
             if module_id then
