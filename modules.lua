@@ -206,6 +206,7 @@ module {
                 seen[key] = true
             end
         end
+        local nk = next(self.points)
         for key, value in pairs(self.points) do
             if not seen[key] then
                 self.points[key] = nil
@@ -720,6 +721,48 @@ module {
             self.offset[key].y = v1.y + v2.y * self.v2_knob
             local dx, dy = v1.x - v2.x, v1.y - v2.y
             self.distance[key] = math.sqrt(dx * dx + dy * dy)
+        end
+    end
+}
+
+module {
+    name = 'associate',
+    parts = {
+        a = {'A', 'port', '*', 'in'},
+        b = {'B', 'port', '*', 'in'},
+        output = {'Out', 'port', '*', 'out'},
+        --zip_button = {'Zip', 'button'},
+        --many_button = {'Many', 'button'},
+    },
+    layout = {
+        {'a', 'b'},
+        {'output'}
+    },
+    start = function(self)
+        self._left_associations = {}
+        self._right_associations = {}
+    end,
+    restart = function(self)
+        self._left_associations = {}
+        self._right_associations = {}
+        self._left_key = nil
+        self._right_key = nil
+    end,
+    update = function(self, dt)
+        for key in pairs(self.a) do
+            if not self._left_associations[key] then
+                self._left_associations[key] = self._right_key
+                self._right_key = next(self.b, self._right_key)
+            end
+            self.output[key] = self.b[self._left_associations[key]]
+        end
+
+        for key in pairs(self.b) do
+            if not self._right_associations[key] then
+                self._right_associations[key] = self._left_key
+                self._left_key = next(self.a, self._left_key)
+            end
+            self.output[key] = self.a[self._right_associations[key]]
         end
     end
 }

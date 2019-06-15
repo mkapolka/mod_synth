@@ -20,11 +20,11 @@ function Utils.point_in_rectangle(x, y, rx, ry, rw, rh)
 end
 
 function Utils.norm_point(x, y)
-    return (x - NORM_FACTOR / 2) / NORM_FACTOR, (y - NORM_FACTOR / 2) / NORM_FACTOR
+    return x / NORM_FACTOR * 2 - 1, y / NORM_FACTOR * 2 - 1
 end
 
 function Utils.denorm_point(x, y)
-    return x * NORM_FACTOR + NORM_FACTOR / 2, y * NORM_FACTOR + NORM_FACTOR / 2
+    return (x / 2 + .5) * NORM_FACTOR, (y / 2 + .5) * NORM_FACTOR
 end
 
 -- iterator that returns all the keys in the given collections
