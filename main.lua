@@ -530,6 +530,7 @@ end
 
 local function loadSave()
     local saveString = love.filesystem.read("save")
+
     if saveString then
         local data = binser.deserialize(saveString)[1]
 

@@ -1,8 +1,143 @@
 local Utils = require "utils"
 
+-- n is a number between -1 and 1,
+-- output is between 0 and 1
+function z1(n)
+    return (n + 1) / 2
+end
+
+-- n is a number between zero and one
+-- output is between -1 and 1
+function np1(n)
+    return n * 2 - 1
+end
+
 local function module(template)
     module_types[template.name] = template
 end
+
+module {
+    name = 'wrap',
+    parts = {
+        points = {'V', 'port', 'vector'},
+        output = {'Vout', 'port', 'vector', 'out'}
+    },
+    layout = {
+        {'points', 'output'}
+    },
+    update = function(self, dt)
+        for k, v in pairs(self.points) do
+            local v = {x = np1(z1(v.x) % 1), y = np1(z1(v.y) % 1)}
+            self.output[k] = v
+        end
+
+        for k, v in pairs(self.output) do
+            if not self.points[k] then
+                self.output[k] = nil
+            end
+        end
+    end
+}
+
+module {
+    name = 'keyboard',
+    parts = {
+        joystick = {'J', 'port', 'vector', 'out'},
+        shoot = {'S', 'port', 'number', 'out'},
+        horizontal = {'H', 'port', 'number', 'out'},
+        vertical = {'V', 'port', 'number', 'out'},
+        --goosh = {'SFT', 'knob'}
+    },
+    layout = {
+        {'joystick', 'shoot'},
+        {'horizontal', 'vertical'},
+    },
+    update = function(self, dt)
+        local vertical = 0
+        local horizontal = 0
+
+        if love.keyboard.isDown('down', 's') then
+            vertical = vertical - 1
+        end
+
+        if love.keyboard.isDown('up', 'w') then
+            vertical = vertical + 1
+        end
+
+        if love.keyboard.isDown('left', 'a') then
+            horizontal = horizontal - 1
+        end
+
+        if love.keyboard.isDown('right', 'd') then
+            horizontal = horizontal + 1
+        end
+
+        self.joystick.default = {x=horizontal, y=vertical}
+        self.joystick.value = {x=horizontal, y=vertical}
+
+        self.horizontal.default = horizontal
+        self.horizontal.value = horizontal
+
+        self.vertical.default = vertical
+        self.vertical.value = vertical
+
+        local shoot = 0
+        if love.keyboard.isDown("z") then
+            shoot = 1
+        end
+
+        self.shoot.default = shoot
+        self.shoot.value = shoot
+    end
+}
+
+module {
+    name = 'spaceships',
+    parts = {
+        points = {'Vs', 'port', 'vector'},
+        forward = {'Go', 'port', 'number'},
+        turn = {'Trn', 'port', 'number'},
+
+        speed = {'Go*', 'knob'},
+        turning_speed = {'Trn*', 'knob'},
+
+        position = {'Vo', 'port', 'vector', 'out'},
+        rotation = {'Ro', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'points', 'forward', 'turn'},
+        {'', 'speed', 'turning_speed'},
+        {'', 'position', 'rotation'},
+    },
+    update = function(self, dt)
+        self._points = self._points or {}
+        for k, v in pairs(self.points) do
+            -- Deltas from starting position
+            local old_point = self._points[k] or v
+            local output_point = self.position[k] or {x=v.x, y=v.y}
+            local delta = {x = v.x - old_point.x, y = v.y - old_point.y}
+            output_point.x = output_point.x + delta.x
+            output_point.y = output_point.y + delta.y
+
+            local forward = self.forward[k] or 0
+            local turn = self.turn[k] or 0
+            local rotation = self.rotation[k] or 0
+
+            -- Driving
+            self.rotation[k] = rotation + turn * self.turning_speed * dt
+            output_point.x = output_point.x + math.cos(self.rotation[k] * math.pi * 2) * forward * self.speed * dt
+            output_point.y = output_point.y + math.sin(self.rotation[k] * math.pi * 2) * forward * self.speed * dt
+            self.position[k] = output_point
+        end
+
+        for k, _ in pairs(self.position) do
+            if not self.points[k] then
+                self.position[k] = nil
+                self.rotation[k] = nil
+            end
+        end
+    end
+}
 
 module {
     name = 'circles',
@@ -160,14 +295,14 @@ module {
         if self.debug_switch then
             for k, v in pairs(self.a_positions) do
                 local x, y = Utils.denorm_point(v.x, v.y)
-                local r = touch_radius(self.a_radii[k], self.a_radii_knob)
+                local r = touch_radius(self.a_radii[k], self.a_radii_knob) / 2
                 local t = self.touches[k]
                 love.graphics.setColor(1, 1-t, 1-t, 1)
                 love.graphics.circle('line', x, y, r * NORM_FACTOR)
             end
             for k, v in pairs(self.b_positions) do
                 local x, y = Utils.denorm_point(v.x, v.y)
-                local r = touch_radius(self.b_radii[k], self.b_radii_knob)
+                local r = touch_radius(self.b_radii[k], self.b_radii_knob) / 2
                 local t = self.touches[k]
                 love.graphics.setColor(1, 1-t, 1-t, 1)
                 love.graphics.circle('line', x, y, r * NORM_FACTOR)
@@ -259,7 +394,7 @@ module {
             end
 
             --local speed = (self.speed[k] or 1) * self.speed_knob
-            local speed = self.speed_knob
+            local speed = math.pow(self.speed_knob, 2) * 4
             self.offsets[k] = self.offsets[k] or {x=0, y=0}
             local offset = self.offsets[k]
 
@@ -297,16 +432,20 @@ module {
                 avoid = true
             end
 
-            if (d < max or avoid) and d > .01 then
+            local drag = self.drag * 40
+            if (d < max or avoid) and d > .05 then
+                local dxn = dx / d
+                local dyn = dy / d
                 local velocity = math.sqrt(v.x * v.x + v.y * v.y)
-                local rel_vel = dx * v.x + dy * v.y -- dot product
-                if rel_vel < speed * 1 then
-                    v.x = v.x + (dx / d) * (self.acceleration * 10) * dt
-                    v.y = v.y + (dy / d) * (self.acceleration * 10) * dt
+                local rel_vel = dxn * v.x + dyn * v.y -- dot product
+                if rel_vel < speed * 5 then
+                    v.x = v.x + (dx / d) * (self.acceleration * 50) * dt
+                    v.y = v.y + (dy / d) * (self.acceleration * 50) * dt
                 end
+                drag = self.drag * 10
             end
 
-            local drag = self.drag * 20
+            --local drag = self.drag * 20
             v.x = v.x - (v.x * drag * dt)
             v.y = v.y - (v.y * drag * dt)
 
@@ -339,36 +478,51 @@ module {
     parts = {
         members = {'Input', 'port', '*', 'in'},
         living = {'Living', 'port', '*', 'out'},
+        health = {'HP', 'port', 'number', 'out'},
         die = {'Die', 'port', 'number', 'in'},
+        poison = {'PSN', 'port', 'number', 'in'},
+        poison_knob = {'', 'knob'},
     },
     layout = {
-        {'members'},
-        {'die'},
-        {'living'},
+        {'members', ''},
+        {'die', 'poison'},
+        {'', 'poison_knob'},
+        {'health', 'living'},
     },
     start = function(self)
         self._deaths = {}
+        self.health = {}
     end,
     restart = function(self)
         self._deaths = {}
+        self.health = {}
     end,
     update = function(self, dt)
         for k, v in pairs(self.living) do
             if not self.members[k] then
                 self.living[k] = nil
                 self._deaths[k] = nil
+                self.health[k] = nil
             end
         end
 
+        local pk = math.pow(self.poison_knob, 2) * 4
         for k, v in pairs(self.members) do
-            if self.die[k] and self.die[k] > .8 then
-                self._deaths[k] = true
-                self.living[k] = nil
+            self.health[k] = self.health[k] or 1
+
+            if self.poison[k] then
+                local p = self.poison[k] * pk
+                self.health[k] = self.health[k] - p * dt
             end
 
             if not self._deaths[k] then
                 self._deaths[k] = false
                 self.living[k] = v
+            end
+
+            if (self.die[k] and self.die[k] > .8) or self.health[k] < 0 then
+                self._deaths[k] = true
+                self.living[k] = nil
             end
         end
     end
@@ -475,8 +629,7 @@ module {
         output = {'Out', 'port', 'color', 'out'},
     },
     layout = {
-        {'hue_knob', 'saturation_knob', 'value_knob', 'alpha_knob'},
-        {'', '', '', 'output'}
+        {'hue_knob', 'saturation_knob', 'value_knob', 'alpha_knob', 'output'}
     },
     update = function(self, dt)
         self.output.default = self.output.default or {}
@@ -763,6 +916,129 @@ module {
                 self._left_key = next(self.a, self._left_key)
             end
             self.output[key] = self.a[self._right_associations[key]]
+        end
+    end
+}
+
+module {
+    name = 'note',
+    parts = {
+        hit = {'Hit', 'port', 'number', 'in'},
+        attack = {'ATK', 'knob'},
+        decay = {'DK', 'knob'},
+        output = {'Out', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'hit', 'output'},
+        {'attack', 'decay'},
+    },
+    start = function(self)
+        self._state = {}
+    end,
+    restart = function(self)
+        self._state = {}
+    end,
+    update = function(self, dt)
+        Utils.cell_trim(self.hit, self.output, {self._v, self._state})
+
+        Utils.cell_map(self.hit, function(key, hit)
+            local state = self._state[key] or {}
+            self._state[key] = state
+            local prev = state.previous or 0
+            if prev < .5 and hit > .5 then
+                state.c = 0
+            end
+
+            state.c = state.c or 0
+            state.c = state.c + dt
+
+            if state.c < self.attack then
+                self.output[key] = state.c / self.attack
+            elseif state.c < self.attack + self.decay then
+                self.output[key] = 1 - (state.c - self.attack) / self.decay
+            else
+                self.output[key] = 0
+            end
+
+            state.previous = hit
+        end)
+    end
+}
+
+local bullet_iota = 0
+local function bullet_fire(self, source_key)
+    local v = self.sources[source_key] or {x=0, y=0}
+    local bv = {x=v.x, y=v.y}
+    self._pools[source_key] = self._pools[source_key] or {}
+    local pool = self._pools[source_key]
+    local bullet_key = source_key .. "_" .. #pool
+    table.insert(pool, bullet_key)
+    self.output[bullet_key] = bv
+    self.out_dir[bullet_key] = self.direction[source_key] or 0
+    self.out_life[bullet_key] = 1
+end
+
+local function bullet_remove(self, key)
+    self.output[key] = nil
+    self.out_life[key] = nil
+    self.out_dir[key] = nil
+end
+
+module {
+    name = 'bullets',
+    parts = {
+        sources = {'V', 'port', 'vector', 'in'},
+        direction = {'Dir', 'port', 'number', 'in'},
+        fire = {'Fire', 'port', 'number', 'in'},
+        rate = {'R8', 'knob'},
+        velocity = {'Vel', 'knob'},
+        acceleration = {'Acc', 'knob'},
+        life = {'Life', 'knob'},
+        output = {'Ov', 'port', 'vector', 'out'},
+        out_life = {'Ol', 'port', 'number', 'out'},
+        out_dir = {'Od', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'sources', 'direction', 'fire'},
+        {'rate', 'velocity', 'acceleration'},
+        {'life', '', ''},
+        {'out_dir', 'out_life', 'output'}
+    },
+    start = function(self, dt)
+        self._pools = {}
+    end,
+    restart = function(self, dt)
+        self._pools = {}
+    end,
+    update = function(self, dt)
+        for key, children in pairs(self._pools) do
+            if not self.sources[key] then
+                for _, child in pairs(children) do
+                    bullet_remove(self, child)
+                end
+            end
+        end
+
+        for key in pairs(self.sources) do
+            local fire = self.fire[key] or 0
+            if fire > .5 then
+                bullet_fire(self, key)
+            end
+        end
+
+        local i = 0
+        for key, vector in pairs(self.output) do
+            local life = self.out_life[key] or 1
+            local dir = self.out_dir[key] or 1
+            vector.x = vector.x + math.cos(dir * math.pi * 2) * self.velocity * dt
+            vector.y = vector.y + math.sin(dir * math.pi * 2) * self.velocity * dt
+
+            life = life - (1 - self.life) * dt
+            self.out_life[key] = life
+
+            if life < 0 then
+                bullet_remove(self, key)
+            end
         end
     end
 }

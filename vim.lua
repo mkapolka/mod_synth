@@ -24,7 +24,6 @@ local awaitclick = {
 local function vim_pcall(f, ...)
     ok, result = pcall(f, ...)
     if not ok then
-        print(result)
         vim.show_message("ERROR! Check console.")
     end
     return result
