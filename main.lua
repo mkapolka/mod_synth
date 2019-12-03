@@ -603,10 +603,12 @@ local function setup_vim_binds()
     vim.bind("normal", "g", function()
         grab_mode = not grab_mode
         if grab_mode then
+            vim.show_message("Grab mode ENABLED")
             love.mouse.setCursor(love.mouse.getSystemCursor('hand'))
         else
             love.mouse.setCursor(love.mouse.getSystemCursor('arrow'))
             holding_module = nil
+            vim.show_message("Grab mode DISABLED")
         end
     end)
 end

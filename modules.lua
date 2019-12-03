@@ -56,19 +56,19 @@ module {
         local vertical = 0
         local horizontal = 0
 
-        if love.keyboard.isDown('down', 's') then
+        if love.keyboard.isDown('down') then
             vertical = vertical - 1
         end
 
-        if love.keyboard.isDown('up', 'w') then
+        if love.keyboard.isDown('up') then
             vertical = vertical + 1
         end
 
-        if love.keyboard.isDown('left', 'a') then
+        if love.keyboard.isDown('left') then
             horizontal = horizontal - 1
         end
 
-        if love.keyboard.isDown('right', 'd') then
+        if love.keyboard.isDown('right') then
             horizontal = horizontal + 1
         end
 
@@ -91,6 +91,25 @@ module {
     end
 }
 
+function _update_spaceship(self, k, v, dt)
+    -- Deltas from starting position
+    local old_point = self._points[k] or v
+    local output_point = self.position[k] or {x=v.x, y=v.y}
+    local delta = {x = v.x - old_point.x, y = v.y - old_point.y}
+    output_point.x = output_point.x + delta.x
+    output_point.y = output_point.y + delta.y
+
+    local forward = self.forward[k] or 0
+    local turn = self.turn[k] or 0
+    local rotation = self.rotation[k] or 0
+
+    -- Driving
+    self.rotation[k] = rotation + turn * self.turning_speed * dt % 1
+    output_point.x = output_point.x + math.cos(self.rotation[k] * math.pi * 2) * forward * self.speed * dt
+    output_point.y = output_point.y + math.sin(self.rotation[k] * math.pi * 2) * forward * self.speed * dt
+    self.position[k] = output_point
+end
+
 module {
     name = 'spaceships',
     parts = {
@@ -103,35 +122,25 @@ module {
 
         position = {'Vo', 'port', 'vector', 'out'},
         rotation = {'Ro', 'port', 'number', 'out'},
+        default = {'+1', 'button', default=true},
     },
     layout = {
         {'points', 'forward', 'turn'},
-        {'', 'speed', 'turning_speed'},
+        {'default', 'speed', 'turning_speed'},
         {'', 'position', 'rotation'},
     },
     update = function(self, dt)
         self._points = self._points or {}
         for k, v in pairs(self.points) do
-            -- Deltas from starting position
-            local old_point = self._points[k] or v
-            local output_point = self.position[k] or {x=v.x, y=v.y}
-            local delta = {x = v.x - old_point.x, y = v.y - old_point.y}
-            output_point.x = output_point.x + delta.x
-            output_point.y = output_point.y + delta.y
+            _update_spaceship(self, k, v, dt)
+        end
 
-            local forward = self.forward[k] or 0
-            local turn = self.turn[k] or 0
-            local rotation = self.rotation[k] or 0
-
-            -- Driving
-            self.rotation[k] = rotation + turn * self.turning_speed * dt
-            output_point.x = output_point.x + math.cos(self.rotation[k] * math.pi * 2) * forward * self.speed * dt
-            output_point.y = output_point.y + math.sin(self.rotation[k] * math.pi * 2) * forward * self.speed * dt
-            self.position[k] = output_point
+        if self.default then
+            _update_spaceship(self, "spaceship", {x=0, y=0}, dt)
         end
 
         for k, _ in pairs(self.position) do
-            if not self.points[k] then
+            if k ~= "spaceship" and not self.points[k] then
                 self.position[k] = nil
                 self.rotation[k] = nil
             end
@@ -561,9 +570,9 @@ module {
             local a = self.a[key] or 0
             local b = self.b[key] or 1
             local c = self.c[key] or 1
-            local cknob = self.cknob * 2 - 1
+            local cknob = np1(self.cknob)
             c = c * cknob
-            self.out[key] = a * b + c
+            self.out[key] = a + b * c
         end
 
         for key, value in pairs(self.a) do
