@@ -25,6 +25,8 @@ local grab_mode = false
 local _click_id = 0
 
 local clicking_port = nil
+local click_x, click_y = nil, nil
+local holding_knob = nil
 local removing = false
 -- other ports that I'm connected to
 local holding_connections = {}
@@ -37,6 +39,8 @@ SLACK = 30
 fullscreen = false
 local playing = true
 clear_color = {0, 0, 0, 1}
+
+local save_slot = 0
 
 local function types_match(t1, t2)
     return t1 == t2 or t1 == '*' or t2 == '*'
@@ -282,6 +286,12 @@ local function delete_module(module_id)
     end
 end
 
+local function clear_modules()
+    for key in pairs(modules) do
+        delete_module(key)
+    end
+end
+
 require "modules"
 
 mclicks = Cell()
@@ -497,10 +507,14 @@ local function update_ports()
     end
 end
 
-local function writeSave()
+local function get_save_file(slot)
+    return "save" .. slot
+end
+
+local function writeSave(slot)
     local data = {
         modules = {},
-        edges = {}
+        edges = {},
     }
 
     for key, module in pairs(modules) do
@@ -525,11 +539,12 @@ local function writeSave()
         table.insert(data.edges, {edge[1], edge[2]})
     end
 
-    love.filesystem.write("save", binser.serialize(data))
+    love.filesystem.write(get_save_file(slot), binser.serialize(data))
 end
 
-local function loadSave()
-    local saveString = love.filesystem.read("save")
+local function loadSave(which)
+    clear_modules()
+    local saveString = love.filesystem.read(get_save_file(which))
 
     if saveString then
         local data = binser.deserialize(saveString)[1]
@@ -540,16 +555,30 @@ local function loadSave()
             if module.parts then
                 local in_module = modules[key]
                 for key, value in pairs(module.parts) do
-                    in_module.parts[key].value = value
+                    if in_module.parts[key] then
+                        in_module.parts[key].value = value
+                    end
                 end
             end
+
         end
 
         for _, edge in pairs(data.edges) do
             table.insert(edges, edge)
             update_bezier(edge)
         end
+        update_ports()
+
+        for key, module in pairs(modules) do
+            visit_module(module, 'start')
+        end
     end
+end
+
+local function clear_edges()
+    edges = {}
+    update_ports()
+    vim.show_message("Patches cleared.")
 end
 
 local function setup_vim_binds()
@@ -566,8 +595,8 @@ local function setup_vim_binds()
     end)
 
     vim.bind("normal", "S", function()
-        writeSave()
-        vim.show_message("Saved.")
+        writeSave(save_slot)
+        vim.show_message("Slot " .. save_slot .. " saved.")
     end)
 
     vim.bind("normal", "f", function()
@@ -611,6 +640,46 @@ local function setup_vim_binds()
             vim.show_message("Grab mode DISABLED")
         end
     end)
+
+    local function load_slot(which)
+        return function()
+            save_slot = which
+            loadSave(save_slot)
+            vim.show_message("Rack " .. which .. " loaded.")
+        end
+    end
+
+    local function save_slot(which)
+        return function()
+            save_slot = which
+            writeSave(save_slot)
+            vim.show_message("Rack " .. which .. " saved.")
+        end
+    end
+
+    vim.bind("normal", "cp", clear_edges)
+
+    vim.bind("normal", "l0", load_slot(0))
+    vim.bind("normal", "l1", load_slot(1))
+    vim.bind("normal", "l2", load_slot(2))
+    vim.bind("normal", "l3", load_slot(3))
+    vim.bind("normal", "l4", load_slot(4))
+    vim.bind("normal", "l5", load_slot(5))
+    vim.bind("normal", "l6", load_slot(6))
+    vim.bind("normal", "l7", load_slot(7))
+    vim.bind("normal", "l8", load_slot(8))
+    vim.bind("normal", "l9", load_slot(9))
+
+    vim.bind("normal", "s0", save_slot(0))
+    vim.bind("normal", "s1", save_slot(1))
+    vim.bind("normal", "s2", save_slot(2))
+    vim.bind("normal", "s3", save_slot(3))
+    vim.bind("normal", "s4", save_slot(4))
+    vim.bind("normal", "s5", save_slot(5))
+    vim.bind("normal", "s6", save_slot(6))
+    vim.bind("normal", "s7", save_slot(7))
+    vim.bind("normal", "s8", save_slot(8))
+    vim.bind("normal", "s9", save_slot(9))
 end
 
 function love.load()
@@ -630,12 +699,7 @@ function love.load()
 
     screen = love.graphics.newCanvas()
 
-    loadSave()
-    update_ports()
-
-    for key, module in pairs(modules) do
-        visit_module(module, 'start')
-    end
+    loadSave(save_slot)
 end
 
 function love.update(dt)
@@ -643,6 +707,13 @@ function love.update(dt)
         for _, module in pairs(modules) do
             visit_module(module, 'update', dt)
         end
+    end
+
+    if holding_knob then
+        local mx = love.mouse.getX()
+        local dx = mx - click_x
+        holding_knob.value = math.min(1, math.max(0, holding_knob.value + (dx / 100)))
+        click_x = mx
     end
 end
 
@@ -794,6 +865,10 @@ function love.mousepressed(x, y, which)
             elseif clicking_type == 'button' then
                 local button = get_part(clicking)
                 button.value = not button.value
+            elseif clicking_type == 'knob' then
+                local knob = get_part(clicking)
+                holding_knob = knob
+                click_x, click_y = x, y
             else
                 local sw, sh = love.graphics.getDimensions()
                 local mx, my = love.mouse.getPosition()
@@ -822,6 +897,8 @@ function love.mousereleased(x, y)
             end
         end
         holding_module = nil
+    elseif holding_knob then
+        holding_knob = nil
     else
         local hovering_pid = get_hovering_part_id()
         local hovering_part = get_part(hovering_pid)

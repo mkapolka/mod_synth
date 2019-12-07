@@ -94,7 +94,7 @@ module {
 function _update_spaceship(self, k, v, dt)
     -- Deltas from starting position
     local old_point = self._points[k] or v
-    local output_point = self.position[k] or {x=v.x, y=v.y}
+    local output_point = rawget(self.position, k) or {x=v.x, y=v.y}
     local delta = {x = v.x - old_point.x, y = v.y - old_point.y}
     output_point.x = output_point.x + delta.x
     output_point.y = output_point.y + delta.y
@@ -137,6 +137,17 @@ module {
 
         if self.default then
             _update_spaceship(self, "spaceship", {x=0, y=0}, dt)
+            self.position.default = self.position.spaceship
+            self.rotation.default = self.rotation.spaceship
+        elseif #self.points > 0 then
+            local avg_pos = 0
+            local avg_rotation = 0
+            for key in pairs(self.points) do
+                avg_pos = avg_pos + self.position[key]
+                avg_rotation = avg_rotation + self.rotation[key]
+            end
+            self.position.default = avg_pos / #self.points
+            self.rotation.default = avg_rotation / #self.points
         end
 
         for k, _ in pairs(self.position) do
@@ -324,16 +335,18 @@ module {
 module {
     name = 'grid',
     parts = {
-        resolution = {'Res', 'port', 'number', 'in'},
-        res_knob = {'', 'knob', 'number'},
+        --resolution = {'Res', 'port', 'number', 'in'},
+        res_knob = {'Res', 'knob', 'number'},
+        wobble = {'Wob', 'knob', 'number', default=0},
         points = {'Out', 'port', 'vector', 'out'},
     },
     layout = {
-        {'resolution', ''},
-        {'res_knob', 'points'}
+        {'res_knob', 'wobble'},
+        {'', 'points'}
     },
     update = function(self, dt)
-        local res = ((self.resolution.default or .5) + 1) * .5
+        --local res = ((self.resolution.default or .5) + 1) * .5
+        local res = 1
         res = res * self.res_knob
         local rx = math.floor(20 * res)
         local ry = math.floor(20 * res)
@@ -344,8 +357,8 @@ module {
                 local fy = (y / ry) * 2 - 1
                 local key = 'grid_' .. self.id .. '_' .. (x * rx + y)
                 local p = self.points[key] or {}
-                p.x = fx
-                p.y = fy
+                p.x = fx + np1(love.math.noise(fx, fy)) * self.wobble
+                p.y = fy + np1(love.math.noise(fx, fy)) * self.wobble
                 self.points[key] = p
                 seen[key] = true
             end
@@ -364,7 +377,7 @@ module {
     parts = {
         positions = {'V', 'port', 'vector', 'in'},
         targets = {'Targ', 'port', 'vector', 'in'},
-        speed_knob = {'', 'knob', 'number'},
+        speed_knob = {'Spd', 'knob', 'number'},
         acceleration = {'Acc', 'knob'},
         drag = {'Drg', 'knob'},
         return_btn = {'RTN', 'button'},
@@ -521,7 +534,7 @@ module {
 
             if self.poison[k] then
                 local p = self.poison[k] * pk
-                self.health[k] = self.health[k] - p * dt
+                self.health[k] = math.max(0, self.health[k] - p * dt)
             end
 
             if not self._deaths[k] then
@@ -621,7 +634,7 @@ module {
             local r, g, b = Utils.hsv(hout, sout,  vout)
             self.output[key] = {r, g, b, aout}
         end
-        for key in Utils.all_keys(self.hue, self.saturation, self.value) do
+        for key in Utils.all_keys(self.hue, self.saturation, self.value, self.alpha) do
             f(key)
         end
         f('default')
@@ -680,9 +693,11 @@ module {
         for key, value in pairs(self.vectors) do
             local nx, ny = value.x * rough, value.y * rough
             self.output[key] = love.math.noise(nx, ny, self._drift)
-            local dx = love.math.noise(nx - .5, ny, self._drift) - love.math.noise(nx + .5, ny, self._drift)
-            local dy = love.math.noise(nx, ny - .5, self._drift) - love.math.noise(nx, ny + .5, self._drift)
-            self.output_vector[key] = {x=dx, y=dy}
+            -- local dx = love.math.noise(nx - .5, ny, self._drift) - love.math.noise(nx + .5, ny, self._drift)
+            -- local dy = love.math.noise(nx, ny - .5, self._drift) - love.math.noise(nx, ny + .5, self._drift)
+            local dx = love.math.noise(nx, ny, self._drift)
+            local dy = love.math.noise(nx + 100, ny + 100, self._drift)
+            self.output_vector[key] = {x=np1(dx), y=np1(dy)}
         end
         self.output.default = love.math.noise(self._drift * rough)
     end
@@ -878,12 +893,30 @@ module {
         for key in Utils.all_keys(self.vector_1, self.vector_2) do
             local v1 = self.vector_1[key] or {x=0, y=0}
             local v2 = self.vector_2[key] or {x=0, y=0}
-            self.offset[key] = self.offset[key] or {}
+            self.offset[key] = rawget(self.offset, key) or {}
             self.offset[key].x = v1.x + v2.x * self.v2_knob
             self.offset[key].y = v1.y + v2.y * self.v2_knob
             local dx, dy = v1.x - v2.x, v1.y - v2.y
             self.distance[key] = math.sqrt(dx * dx + dy * dy)
         end
+    end
+}
+
+module {
+    name = 'vector-s',
+    parts = {
+        r = {'R', 'knob'},
+        d = {'D', 'knob'},
+        output = {'Out', 'port', 'vector', 'out'},
+    },
+    layout = {
+        {'r','d','output'}
+    },
+    update = function(self, dt)
+        local x = math.cos(self.r * math.pi * 2) * self.d
+        local y = math.sin(self.r * math.pi * 2) * self.d
+        self.output.default = {x=x, y=y}
+        self.output.value = {x=x, y=y}
     end
 }
 
@@ -984,7 +1017,7 @@ local function bullet_fire(self, source_key)
     table.insert(pool, bullet_key)
     self.output[bullet_key] = bv
     self.out_dir[bullet_key] = self.direction[source_key] or 0
-    self.out_life[bullet_key] = 1
+    self.out_life[bullet_key] = 1.0
 end
 
 local function bullet_remove(self, key)
@@ -1001,7 +1034,6 @@ module {
         fire = {'Fire', 'port', 'number', 'in'},
         rate = {'R8', 'knob'},
         velocity = {'Vel', 'knob'},
-        acceleration = {'Acc', 'knob'},
         life = {'Life', 'knob'},
         output = {'Ov', 'port', 'vector', 'out'},
         out_life = {'Ol', 'port', 'number', 'out'},
@@ -1009,7 +1041,7 @@ module {
     },
     layout = {
         {'sources', 'direction', 'fire'},
-        {'rate', 'velocity', 'acceleration'},
+        {'rate', 'velocity', ''},
         {'life', '', ''},
         {'out_dir', 'out_life', 'output'}
     },
@@ -1020,6 +1052,8 @@ module {
         self._pools = {}
     end,
     update = function(self, dt)
+        self._r8 = self._r8 or 0
+
         for key, children in pairs(self._pools) do
             if not self.sources[key] then
                 for _, child in pairs(children) do
@@ -1028,21 +1062,26 @@ module {
             end
         end
 
-        for key in pairs(self.sources) do
-            local fire = self.fire[key] or 0
-            if fire > .5 then
-                bullet_fire(self, key)
+        self._r8 = self._r8 + dt
+        if self._r8 > (1 - self.rate) then
+            for key in pairs(self.sources) do
+                local fire = self.fire[key] or 0
+                if fire > .5 then
+                    bullet_fire(self, key)
+                end
             end
+            self._r8 = 0
         end
 
         local i = 0
         for key, vector in pairs(self.output) do
-            local life = self.out_life[key] or 1
+            local life = self.out_life[key] or 1.0
             local dir = self.out_dir[key] or 1
-            vector.x = vector.x + math.cos(dir * math.pi * 2) * self.velocity * dt
-            vector.y = vector.y + math.sin(dir * math.pi * 2) * self.velocity * dt
+            local v = self.velocity
+            vector.x = vector.x + math.cos(dir * math.pi * 2) * v * dt
+            vector.y = vector.y + math.sin(dir * math.pi * 2) * v * dt
 
-            life = life - (1 - self.life) * dt
+            life = life - ((1 - self.life) * dt)
             self.out_life[key] = life
 
             if life < 0 then
