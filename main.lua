@@ -684,7 +684,9 @@ end
 
 function love.load()
     setup_vim_binds()
-    love.window.setMode(1024, 768)
+    love.window.setMode(1024, 768, {
+        resizable=true
+    })
 
     NORM_FACTOR, _ = love.graphics.getDimensions()
     local ww, wh = love.graphics.getDimensions()

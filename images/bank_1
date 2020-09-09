@@ -1,22 +1,22 @@
 # Characters ???0
 # Animal ??00
-pig.png
-dino.png
-crab.png
-birdie.png
+pak1/pig.png
+pak1/dino.png
+pak1/crab.png
+pak1/birdie.png
 # Human ??10
-man.png
-lady2.png
-baby.png
-lady.png
+pak1/man.png
+pak1/lady2.png
+pak1/baby.png
+pak1/lady.png
 # Props ???1
 # Nature ??01
-apple.png
-branch.png
-sun.png
-finger.png
+pak1/apple.png
+pak1/branch.png
+pak1/sun.png
+pak1/finger.png
 # Man-made ??11
-column.png
-bag.png
-robot.png
-castle.png
+pak1/column.png
+pak1/bag.png
+pak1/robot.png
+pak1/castle.png
