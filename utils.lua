@@ -78,4 +78,12 @@ function Utils.cell_map(pk_cell, f)
     end
 end
 
+function Utils.remove_element(t, element)
+    for i, e in pairs(t) do
+        if e == element then
+            return table.remove(t, i)
+        end
+    end
+end
+
 return Utils

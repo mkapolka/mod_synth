@@ -10,7 +10,6 @@ CELL_WIDTH = 35
 CELL_HEIGHT = 40
 GRID_WIDTH = 0 -- filled in in load
 GRID_HEIGHT = 0 -- filled in in load
-GRID = {}
 
 module_types = {}
 local modules = {}
@@ -134,15 +133,35 @@ local function module_part(part, x, y)
     return output
 end
 
-local gmx = 0
-local gmy = 0
+local function module_cell_dimensions(module)
+    local t = module_types[module.module_type]
+    return #module.layout[1] + 1, #module.layout + 1
+end
 
-local function can_place_module_at(x, y, width, height)
-    for w=0,width-1 do
-        for h=0,height-1 do
-            if x+w > GRID_WIDTH-1 or y+h > GRID_HEIGHT-1 or GRID[x+w][y+h] then
-                return false
-            end
+local function modules_overlap(x, y, w, h, m2)
+    local x1, x2, y1, y2 = x, m2.x, y, m2.y
+    local w1, h1, w2, h2 = w, h, module_cell_dimensions(m2)
+    local lrx1 = x1 + w1
+    local lry1 = y1 + h1
+    local lrx2 = x2 + w2
+    local lry2 = y2 + h2
+    if lrx1 <= x2 or lrx2 <= x1 then
+        return false
+    end
+
+    if lry1 <= y2 or lry2 <= y1 then
+        return false
+    end
+
+    return true
+end
+
+local function can_place_module_at(x, y, w, h)
+    local lrx = x + w
+    local lry = y + h
+    for _, module in pairs(modules) do
+        if not module.uprooted and modules_overlap(x, y, w, h, module) then
+            return false
         end
     end
     return true
@@ -159,28 +178,17 @@ local function find_module_place(width, height)
     return nil
 end
 
+local function uproot_module(module)
+    module.uprooted = true
+end
+
 local function place_module(module, x, y)
     module.x = x
     module.y = y
-    for w=0,#module.layout[1] do
-        for h=0,#module.layout do
-            GRID[x+w][y+h] = true
-        end
-    end
+    module.uprooted = nil
+    table.insert(modules, module)
 end
 
-local function uproot_module(module)
-    local x, y = module.x, module.y
-    for w=0,#module.layout[1] do
-        for h=0,#module.layout do
-            GRID[x+w][y+h] = false
-        end
-    end
-end
-
-local function module_cell_dimensions(module)
-    return #module.layout[1] + 1, #module.layout + 1
-end
 
 local function rack(name, mx, my, id)
     if not module_types[name] then
@@ -270,7 +278,6 @@ local function delete_module(module_id)
         end
     end
     for i=#edges_to_remove,1,-1 do
-        print("removing edge", edges_to_remove[i])
         table.remove(edges, edges_to_remove[i])
     end
 
@@ -690,12 +697,6 @@ function love.load()
     local ww, wh = love.graphics.getDimensions()
     GRID_WIDTH = math.floor(ww / CELL_WIDTH)
     GRID_HEIGHT = math.floor(wh / CELL_HEIGHT)
-    for x=0,GRID_WIDTH-1 do
-        GRID[x] = {}
-        for y=0,GRID_HEIGHT-1 do
-            GRID[x][y] = false
-        end
-    end
 
     screen = love.graphics.newCanvas()
 
