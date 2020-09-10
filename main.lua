@@ -186,7 +186,6 @@ local function place_module(module, x, y)
     module.x = x
     module.y = y
     module.uprooted = nil
-    table.insert(modules, module)
 end
 
 
