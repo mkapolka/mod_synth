@@ -312,20 +312,22 @@ module {
         end
     end,
     draw = function(self)
+        local w, h = love.window.getMode()
+        local normy = math.max(w, h)
         if self.debug_switch then
             for k, v in pairs(self.a_positions) do
                 local x, y = Utils.denorm_point(v.x, v.y)
                 local r = touch_radius(self.a_radii[k], self.a_radii_knob) / 2
                 local t = self.touches[k]
                 love.graphics.setColor(1, 1-t, 1-t, 1)
-                love.graphics.circle('line', x, y, r * NORM_FACTOR)
+                love.graphics.circle('line', x, y, r * normy)
             end
             for k, v in pairs(self.b_positions) do
                 local x, y = Utils.denorm_point(v.x, v.y)
                 local r = touch_radius(self.b_radii[k], self.b_radii_knob) / 2
                 local t = self.touches[k]
                 love.graphics.setColor(1, 1-t, 1-t, 1)
-                love.graphics.circle('line', x, y, r * NORM_FACTOR)
+                love.graphics.circle('line', x, y, r * normy)
             end
             love.graphics.setColor(1, 1, 1, 1)
         end
@@ -763,7 +765,8 @@ module {
 
 local images = {}
 local i = 0
-for line in love.filesystem.lines("images/bank_1") do
+-- for line in love.filesystem.lines("images/bank_1") do
+for line in love.filesystem.lines("images/bank_2") do
     -- comments
     if not line:match("^#") then
         images[i] = love.graphics.newImage("images/" .. line)

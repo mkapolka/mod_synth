@@ -20,11 +20,27 @@ function Utils.point_in_rectangle(x, y, rx, ry, rw, rh)
 end
 
 function Utils.norm_point(x, y)
-    return x / NORM_FACTOR * 2 - 1, y / NORM_FACTOR * 2 - 1
+    local w, h = love.window.getMode()
+    local n = math.max(w, h)
+    if w > h then
+        y = y + (w - h) / 2
+    else
+        x = x + (h - w) / 2
+    end
+    return x / n * 2 - 1, y / n * 2 - 1
 end
 
 function Utils.denorm_point(x, y)
-    return (x / 2 + .5) * NORM_FACTOR, (y / 2 + .5) * NORM_FACTOR
+    local w, h = love.window.getMode()
+    local n = math.max(w, h)
+    local xo = (x / 2 + .5) * n
+    local yo = (y / 2 + .5) * n
+    if w > h then
+        yo = yo - (w - h) / 2
+    else
+        xo = xo - (w - h) / 2
+    end
+    return xo, yo
 end
 
 -- iterator that returns all the keys in the given collections

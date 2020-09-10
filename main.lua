@@ -33,7 +33,6 @@ local holding_connections = {}
 
 -- Initialized in love.load
 local screen = nil
-NORM_FACTOR = 600
 SLACK = 30
 
 fullscreen = false
@@ -688,7 +687,6 @@ function love.load()
         resizable=true
     })
 
-    NORM_FACTOR, _ = love.graphics.getDimensions()
     local ww, wh = love.graphics.getDimensions()
     GRID_WIDTH = math.floor(ww / CELL_WIDTH)
     GRID_HEIGHT = math.floor(wh / CELL_HEIGHT)
@@ -702,6 +700,11 @@ function love.load()
     screen = love.graphics.newCanvas()
 
     loadSave(save_slot)
+end
+
+function love.resize(w, h)
+    screen:release()
+    screen = love.graphics.newCanvas(w, h)
 end
 
 function love.update(dt)
