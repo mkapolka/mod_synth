@@ -337,7 +337,6 @@ module {
 module {
     name = 'grid',
     parts = {
-        --resolution = {'Res', 'port', 'number', 'in'},
         res_knob = {'Res', 'knob', 'number'},
         wobble = {'Wob', 'knob', 'number', default=0},
         points = {'Out', 'port', 'vector', 'out'},

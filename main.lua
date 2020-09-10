@@ -348,7 +348,7 @@ local function draw_knob(module, key)
     local hovering = point_in({x=mx, y=my}, {x=kx, y=ky}, KNOB_RADIUS)
     fill_mode = hovering and 'fill' or 'line'
     love.graphics.circle(fill_mode, kx, ky, KNOB_RADIUS)
-    local t = math.pi / 2 + knob.value * math.pi * 2
+    local t = (math.pi / 2 + math.pi / 10) + knob.value * (math.pi * 1.8)
     local ox, oy = math.cos(t) * KNOB_RADIUS, math.sin(t) * KNOB_RADIUS
     if fill_mode == 'fill' then
         love.graphics.setColor(0, 0, 0, 1)
