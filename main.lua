@@ -12,33 +12,28 @@ GRID_WIDTH = 0 -- filled in in load
 GRID_HEIGHT = 0 -- filled in in load
 
 module_types = {}
-local modules = {}
-local ports = {}
-local knobs = {}
-local buttons = {}
-local edges = {}
-local cells = {}
+local MODULES = {}
+local EDGES = {}
 
-local grab_mode = false
+local GRAB_MODE = false
 
-local _click_id = 0
+local _CLICK_ID = 0
 
-local clicking_port = nil
-local click_x, click_y = nil, nil
-local holding_knob = nil
-local removing = false
+local CLICKING_PORT = nil
+local CLICK_X, CLICK_Y = nil, nil
+local HOLDING_KNOB = nil
 -- other ports that I'm connected to
-local holding_connections = {}
+local HOLDING_CONNECTIONS = {}
 
 -- Initialized in love.load
-local screen = nil
+local SCREEN = nil
 SLACK = 30
 
-fullscreen = false
-local playing = true
-clear_color = {0, 0, 0, 1}
+FULLSCREEN = false
+local PLAYING = true
+CLEAR_COLOR = {0, 0, 0, 1}
 
-local save_slot = 0
+local SAVE_SLOT = 0
 
 local function types_match(t1, t2)
     return t1 == t2 or t1 == '*' or t2 == '*'
@@ -57,7 +52,6 @@ local function Cell(default)
             end
         end
     })
-    table.insert(cells, output)
     return output
 end
 
@@ -87,14 +81,14 @@ end
 
 local function get_part(part_id)
     if part_id then
-        local module = modules[part_id[1]]
+        local module = MODULES[part_id[1]]
         return module.parts[part_id[2]]
     end
     return nil
 end
 
 local function reify_pid(part_id)
-    local module = modules[part_id[1]]
+    local module = MODULES[part_id[1]]
     local part = module.parts[part_id[2]]
     return module, part
 end
@@ -117,17 +111,14 @@ local function module_part(part, x, y)
         output.output = part[4] == 'out'
         output.own_cell = Cell()
         output.cell = output.own_cell
-        table.insert(ports, output)
     end
 
     if part_type == 'knob' then
         output.value = part.default or .5
-        table.insert(knobs, output)
     end
 
     if part_type == 'button' then
         output.value = part.default or false
-        table.insert(buttons, output)
     end
 
     return output
@@ -159,7 +150,7 @@ end
 local function can_place_module_at(x, y, w, h)
     local lrx = x + w
     local lry = y + h
-    for _, module in pairs(modules) do
+    for _, module in pairs(MODULES) do
         if not module.uprooted and modules_overlap(x, y, w, h, module) then
             return false
         end
@@ -234,11 +225,11 @@ local function rack(name, mx, my, id)
 
     template.parts = new_parts
     if id then
-        modules[id] = template
+        MODULES[id] = template
         template.id = id
     else
-        table.insert(modules, template)
-        template.id = #modules
+        table.insert(MODULES, template)
+        template.id = #MODULES
     end
     return template
 end
@@ -266,33 +257,33 @@ local function visit_module(module, method, ...)
 end
 
 local function delete_module(module_id)
-    visit_module(modules[module_id], 'delete')
-    uproot_module(modules[module_id])
-    modules[module_id] = nil
+    visit_module(MODULES[module_id], 'delete')
+    uproot_module(MODULES[module_id])
+    MODULES[module_id] = nil
     local edges_to_remove = {}
-    for i=1,#edges do
-        local edge = edges[i]
+    for i=1,#EDGES do
+        local edge = EDGES[i]
         if edge[1][1] == module_id or edge[2][1] == module_id then
             table.insert(edges_to_remove, i)
         end
     end
     for i=#edges_to_remove,1,-1 do
-        table.remove(edges, edges_to_remove[i])
+        table.remove(EDGES, edges_to_remove[i])
     end
 
-    if clicking_port and clicking_port[1] == module_id then
-        clicking_port = nil
+    if CLICKING_PORT and CLICKING_PORT[1] == module_id then
+        CLICKING_PORT = nil
     end
 
-    for i=#holding_connections,1,-1 do
-        if holding_connections[i][1] == module_id then
-            table.remove(holding_connections, i)
+    for i=#HOLDING_CONNECTIONS,1,-1 do
+        if HOLDING_CONNECTIONS[i][1] == module_id then
+            table.remove(HOLDING_CONNECTIONS, i)
         end
     end
 end
 
 local function clear_modules()
-    for key in pairs(modules) do
+    for key in pairs(MODULES) do
         delete_module(key)
     end
 end
@@ -325,8 +316,8 @@ local function draw_port(module, port_name)
         color = {.8, 1, .8, 1},
     }
     local color = colors[port.type or ''] or {1, 1, 1, .8}
-    if clicking_port then
-        local clicking = get_part(clicking_port)
+    if CLICKING_PORT then
+        local clicking = get_part(CLICKING_PORT)
         if clicking.output == port.output or not types_match(clicking.type, port.type) then
             color[4] = .3
         end
@@ -380,8 +371,8 @@ local function draw_button(module, key)
 end
 
 local function draw_connections()
-    for i=1,#edges do
-        local conn = edges[i]
+    for i=1,#EDGES do
+        local conn = EDGES[i]
         local m1, p1 = reify_pid(conn[1])
         local m2, p2 = reify_pid(conn[2])
         local p1x, p1y = part_screen_position(m1, p1)
@@ -394,8 +385,8 @@ local function draw_connections()
 end
 
 local function get_connection_id(pid1, pid2)
-    for i=1,#edges do
-        local e = edges[i]
+    for i=1,#EDGES do
+        local e = EDGES[i]
         if (part_keys_equal(e[1], pid1) and part_keys_equal(e[2], pid2)) or 
            (part_keys_equal(e[1], pid2) and part_keys_equal(e[2], pid1)) then
             return i
@@ -406,21 +397,21 @@ end
 local function disconnect(pid1, pid2)
     local cid = get_connection_id(pid1, pid2)
     if cid then
-        table.remove(edges, cid)
+        table.remove(EDGES, cid)
     end
 end
 
 local function disconnect_all(pid)
     local to_remove = {}
-    for i=1,#edges do
-        local e = edges[i]
+    for i=1,#EDGES do
+        local e = EDGES[i]
         if part_keys_equal(e[1], pid) or part_keys_equal(e[2], pid) then
             table.insert(to_remove, i)
         end
     end
 
     for i=#to_remove,1,-1 do
-        table.remove(edges, to_remove[i])
+        table.remove(EDGES, to_remove[i])
     end
 end
 
@@ -442,13 +433,13 @@ local function connect(pid1, pid2)
         local connection = {pid1, pid2}
         update_bezier(connection)
 
-        table.insert(edges, connection)
+        table.insert(EDGES, connection)
     end
 end
 
 local function get_hovering_module_id()
     local mouse_x, mouse_y = love.mouse.getPosition()
-    for key, module in pairs(modules) do
+    for key, module in pairs(MODULES) do
         local mx, my, mw, mh = module_dimensions(module)
         if Utils.point_in_rectangle(mouse_x, mouse_y, mx, my, mw, mh) then
             return key
@@ -459,7 +450,7 @@ end
 local function get_hovering_module()
     local module_id = get_hovering_module_id()
     if module_id then
-        return modules[module_id]
+        return MODULES[module_id]
     end
 end
 
@@ -467,7 +458,7 @@ end
 local function get_hovering_part_id()
     local x, y = love.mouse.getPosition()
     local mp = {x=x, y=y}
-    for module_id, module in pairs(modules) do
+    for module_id, module in pairs(MODULES) do
         local mx, my, mw, mh = module_dimensions(module)
         if Utils.point_in_rectangle(x, y, mx, my, mw, mh) then
             for key, part in pairs(module.parts) do
@@ -494,7 +485,7 @@ local function get_hovering_knob()
 end
 
 local function update_ports()
-    for _, m in pairs(modules) do
+    for _, m in pairs(MODULES) do
         for key, part in pairs(m.parts) do
             if part.part_type == 'port' then
                 part.cell = part.own_cell
@@ -502,8 +493,8 @@ local function update_ports()
         end
     end
 
-    for i=1,#edges do
-        local edge = edges[i]
+    for i=1,#EDGES do
+        local edge = EDGES[i]
         local left = get_part(edge[1])
         local right = get_part(edge[2])
         local out_port = left.output and left or right
@@ -516,13 +507,13 @@ local function get_save_file(slot)
     return "save" .. slot
 end
 
-local function writeSave(slot)
+local function write_save(slot)
     local data = {
         modules = {},
         edges = {},
     }
 
-    for key, module in pairs(modules) do
+    for key, module in pairs(MODULES) do
         local out_module = {
             module_type = module.module_type,
             x = module.x,
@@ -539,15 +530,15 @@ local function writeSave(slot)
         data.modules[key] = out_module
     end
 
-    for i=1,#edges do
-        local edge = edges[i]
+    for i=1,#EDGES do
+        local edge = EDGES[i]
         table.insert(data.edges, {edge[1], edge[2]})
     end
 
     love.filesystem.write(get_save_file(slot), binser.serialize(data))
 end
 
-local function loadSave(which)
+local function load_save(which)
     clear_modules()
     local saveString = love.filesystem.read(get_save_file(which))
 
@@ -558,7 +549,7 @@ local function loadSave(which)
             rack(module.module_type, module.x, module.y, key)
 
             if module.parts then
-                local in_module = modules[key]
+                local in_module = MODULES[key]
                 for key, value in pairs(module.parts) do
                     if in_module.parts[key] then
                         in_module.parts[key].value = value
@@ -569,12 +560,12 @@ local function loadSave(which)
         end
 
         for _, edge in pairs(data.edges) do
-            table.insert(edges, edge)
+            table.insert(EDGES, edge)
             update_bezier(edge)
         end
         update_ports()
 
-        for key, module in pairs(modules) do
+        for key, module in pairs(MODULES) do
             visit_module(module, 'start')
         end
     end
@@ -600,20 +591,20 @@ local function setup_vim_binds()
     end)
 
     vim.bind("normal", "S", function()
-        writeSave(save_slot)
-        vim.show_message("Slot " .. save_slot .. " saved.")
+        write_save(SAVE_SLOT)
+        vim.show_message("Slot " .. SAVE_SLOT .. " saved.")
     end)
 
     vim.bind("normal", "f", function()
-        fullscreen = not fullscreen
+        FULLSCREEN = not FULLSCREEN
     end)
 
     vim.bind("normal", " ", function()
-        playing = not playing
+        PLAYING = not PLAYING
     end)
 
     vim.bind("normal", "d", function()
-        fullscreen = false
+        FULLSCREEN = false
         vim.enter_awaitclick("Delete which module?", function(x, y)
             local module_id = get_hovering_module_id()
             if module_id then
@@ -624,19 +615,14 @@ local function setup_vim_binds()
     end)
 
     vim.bind("normal", "r", function()
-        for k, v in pairs(cells) do
-            for k2 in pairs(v) do
-                v[k2] = nil
-            end
-        end
-        for _, module in pairs(modules) do
+        for _, module in pairs(MODULES) do
             visit_module(module, 'restart')
         end
     end)
 
     vim.bind("normal", "g", function()
-        grab_mode = not grab_mode
-        if grab_mode then
+        GRAB_MODE = not GRAB_MODE
+        if GRAB_MODE then
             vim.show_message("Grab mode ENABLED")
             love.mouse.setCursor(love.mouse.getSystemCursor('hand'))
         else
@@ -648,16 +634,16 @@ local function setup_vim_binds()
 
     local function load_slot(which)
         return function()
-            save_slot = which
-            loadSave(save_slot)
+            SAVE_SLOT = which
+            load_save(SAVE_SLOT)
             vim.show_message("Rack " .. which .. " loaded.")
         end
     end
 
     local function save_slot(which)
         return function()
-            save_slot = which
-            writeSave(save_slot)
+            SAVE_SLOT = which
+            write_save(SAVE_SLOT)
             vim.show_message("Rack " .. which .. " saved.")
         end
     end
@@ -697,34 +683,34 @@ function love.load()
     GRID_WIDTH = math.floor(ww / CELL_WIDTH)
     GRID_HEIGHT = math.floor(wh / CELL_HEIGHT)
 
-    screen = love.graphics.newCanvas()
+    SCREEN = love.graphics.newCanvas()
 
-    loadSave(save_slot)
+    load_save(SAVE_SLOT)
 end
 
 function love.resize(w, h)
-    screen:release()
-    screen = love.graphics.newCanvas(w, h)
+    SCREEN:release()
+    SCREEN = love.graphics.newCanvas(w, h)
 end
 
 function love.update(dt)
-    if playing then
-        for _, module in pairs(modules) do
+    if PLAYING then
+        for _, module in pairs(MODULES) do
             visit_module(module, 'update', dt)
         end
     end
 
-    if holding_knob then
+    if HOLDING_KNOB then
         local mx = love.mouse.getX()
-        local dx = mx - click_x
-        holding_knob.value = math.min(1, math.max(0, holding_knob.value + (dx / 100)))
-        click_x = mx
+        local dx = mx - CLICK_X
+        HOLDING_KNOB.value = math.min(1, math.max(0, HOLDING_KNOB.value + (dx / 100)))
+        CLICK_X = mx
     end
 end
 
 function love.draw(dt)
-    if not fullscreen then
-        for key, module in pairs(modules) do
+    if not FULLSCREEN then
+        for key, module in pairs(MODULES) do
             local mx, my, mw, mh = module_dimensions(module)
             love.graphics.print(module.name, mx + 5, my + 5)
             love.graphics.rectangle('line', mx, my, mw, mh)
@@ -754,11 +740,11 @@ function love.draw(dt)
 
         draw_connections()
 
-        if clicking_port then
+        if CLICKING_PORT then
             local mx, my = love.mouse.getPosition()
-            for i=1,#holding_connections do
-                local hcid = holding_connections[i]
-                local module = modules[hcid[1]]
+            for i=1,#HOLDING_CONNECTIONS do
+                local hcid = HOLDING_CONNECTIONS[i]
+                local module = MODULES[hcid[1]]
                 local port = module.parts[hcid[2]]
                 local px, py = part_screen_position(module, port)
                 love.graphics.line(mx, my, px, py)
@@ -767,19 +753,19 @@ function love.draw(dt)
 
         local sw, sh = love.graphics.getDimensions()
         love.graphics.rectangle('line', sw - (sw / 3), sh - (sh / 3), sw / 3, sh / 3)
-        love.graphics.draw(screen, sw - (sw / 3), sh - (sh / 3), 0, 1/3, 1/3)
+        love.graphics.draw(SCREEN, sw - (sw / 3), sh - (sh / 3), 0, 1/3, 1/3)
 
-        love.graphics.setCanvas(screen)
-    else -- fullscreen
+        love.graphics.setCanvas(SCREEN)
+    else -- FULLSCREEN
         local sw, sh = love.graphics.getDimensions()
         love.graphics.rectangle('line', 0, 0, sw, sh)
     end
 
-    love.graphics.clear(clear_color)
+    love.graphics.clear(CLEAR_COLOR)
 
     local draw_modules = {}
     local i = 1
-    for key, value in pairs(modules) do
+    for key, value in pairs(MODULES) do
         if value.draw then
             draw_modules[i] = value
             i = i + 1
@@ -806,7 +792,7 @@ function love.draw(dt)
     love.graphics.setCanvas(nil)
 
     local ww, wh = love.graphics.getDimensions()
-    if playing then
+    if PLAYING then
         local TRI_SIZE = 10
         local lx = ww - TRI_SIZE
         local ly = TRI_SIZE
@@ -821,8 +807,8 @@ end
 
 
 local function add_click(x, y)
-    local key = 'click_' .. _click_id
-    _click_id = _click_id + 1
+    local key = 'click_' .. _CLICK_ID
+    _CLICK_ID = _CLICK_ID + 1
     mclicks.default = mclicks.default or {}
     mclicks.default.x = x
     mclicks.default.y = y
@@ -830,14 +816,14 @@ local function add_click(x, y)
 end
 
 function love.mousepressed(x, y, which)
-    if grab_mode then
+    if GRAB_MODE then
         local module = get_hovering_module()
         if module then
             holding_module = module
             uproot_module(module)
         end
     elseif which == 1 then
-        if fullscreen then
+        if FULLSCREEN then
             local mx, my = love.mouse.getPosition()
             add_click(Utils.norm_point(mx, my))
         else
@@ -845,39 +831,39 @@ function love.mousepressed(x, y, which)
 
             if clicking_type == 'port' then
                 -- immediatly disconnect
-                clicking_port = clicking
+                CLICKING_PORT = clicking
                 local port = get_part(clicking)
-                holding_connections = {}
-                for i=1,#edges do
-                    local edge = edges[i]
+                HOLDING_CONNECTIONS = {}
+                for i=1,#EDGES do
+                    local edge = EDGES[i]
                     if part_keys_equal(edge[1], clicking) then
-                        table.insert(holding_connections, edge[2])
+                        table.insert(HOLDING_CONNECTIONS, edge[2])
                     end
 
                     if part_keys_equal(edge[2], clicking) then
-                        table.insert(holding_connections, edge[1])
+                        table.insert(HOLDING_CONNECTIONS, edge[1])
                     end
                 end
 
                 disconnect_all(clicking)
                 update_ports()
 
-                if #holding_connections == 0 then
-                    table.insert(holding_connections, clicking)
+                if #HOLDING_CONNECTIONS == 0 then
+                    table.insert(HOLDING_CONNECTIONS, clicking)
                 else
-                    clicking_port = holding_connections[1]
+                    CLICKING_PORT = HOLDING_CONNECTIONS[1]
                 end
             elseif clicking_type == 'button' then
                 local button = get_part(clicking)
                 button.value = not button.value
             elseif clicking_type == 'knob' then
                 local knob = get_part(clicking)
-                holding_knob = knob
-                click_x, click_y = x, y
+                HOLDING_KNOB = knob
+                CLICK_X, CLICK_Y = x, y
             else
                 local sw, sh = love.graphics.getDimensions()
                 local mx, my = love.mouse.getPosition()
-                if not fullscreen then
+                if not FULLSCREEN then
                     mx = (mx - (2 * sw / 3)) * 3
                     my = (my - (2 * sh / 3)) * 3
                 end
@@ -895,32 +881,32 @@ function love.mousereleased(x, y)
         local mw, mh = module_cell_dimensions(holding_module)
         if can_place_module_at(mcx, mcy, mw, mh) then
             place_module(holding_module, mcx, mcy)
-            for _, edge in pairs(edges) do
+            for _, edge in pairs(EDGES) do
                 if edge[1][1] == holding_module.id or edge[2][1] == holding_module.id then
                     update_bezier(edge)
                 end
             end
         end
         holding_module = nil
-    elseif holding_knob then
-        holding_knob = nil
+    elseif HOLDING_KNOB then
+        HOLDING_KNOB = nil
     else
         local hovering_pid = get_hovering_part_id()
         local hovering_part = get_part(hovering_pid)
-        if hovering_part and hovering_part.part_type == 'port' and clicking_port then
+        if hovering_part and hovering_part.part_type == 'port' and CLICKING_PORT then
             hovering_part = get_part(hovering_pid) or {}
-            local clicking = get_part(clicking_port)
+            local clicking = get_part(CLICKING_PORT)
             local type1, type2 = hovering_part.type, clicking.type
             if types_match(type1, type2) and hovering_part.output ~= clicking.output then
-                for i=1,#holding_connections do
-                    connect(hovering_pid, holding_connections[i])
+                for i=1,#HOLDING_CONNECTIONS do
+                    connect(hovering_pid, HOLDING_CONNECTIONS[i])
                 end
                 update_ports()
             end
         end
     end
 
-    clicking_port = nil
+    CLICKING_PORT = nil
 end
 
 function love.wheelmoved(x, y)
