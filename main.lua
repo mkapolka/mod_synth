@@ -256,6 +256,21 @@ local function visit_module(module, method, ...)
     end
 end
 
+local function reset_module(module)
+    module.target = {}
+
+    for key, v in pairs(module.parts) do
+        if v.part_type == 'port' then
+            for k, _ in pairs(v.cell) do
+                v.cell[k] = nil
+            end
+            v.cell.default = nil
+        end
+    end
+
+    visit_module(module, "restart")
+end
+
 local function delete_module(module_id)
     visit_module(MODULES[module_id], 'delete')
     uproot_module(MODULES[module_id])
@@ -616,7 +631,7 @@ local function setup_vim_binds()
 
     vim.bind("normal", "r", function()
         for _, module in pairs(MODULES) do
-            visit_module(module, 'restart')
+            reset_module(module)
         end
     end)
 

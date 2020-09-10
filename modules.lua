@@ -129,6 +129,12 @@ module {
         {'default', 'speed', 'turning_speed'},
         {'', 'position', 'rotation'},
     },
+    start = function(self, dt)
+        self._points = {}
+    end,
+    restart = function(self)
+        self._points = {}
+    end,
     update = function(self, dt)
         self._points = self._points or {}
         for k, v in pairs(self.points) do
