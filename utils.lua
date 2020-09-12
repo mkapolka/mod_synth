@@ -62,19 +62,23 @@ function Utils.cell_trim(pk_cell, out_cell, other_cells)
     for key in pairs(out_cell) do
         if not pk_cell[key] then
             out_cell[key] = nil
-            for k2, other in pairs(other_cells) do
-                other[key] = nil
+            if other_cells then
+                for k2, other in pairs(other_cells) do
+                    other[key] = nil
+                end
             end
         end
     end
 end
 
-function Utils.cell_map(pk_cell, f)
+function Utils.cell_map(pk_cell, f, onDefault)
     for key, value in pairs(pk_cell) do
         f(key, value)
     end
-    if pk_cell.default then
-        f('default', pk_cell.default)
+    if onDefault == undefined or onDefault then
+        if pk_cell.default then
+            f('default', pk_cell.default)
+        end
     end
 end
 

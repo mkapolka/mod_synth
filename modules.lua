@@ -227,7 +227,7 @@ module {
         self.position.point = self.position.point or {}
 
         local mx, my = love.mouse.getPosition()
-        if not fullscreen then
+        if not FULLSCREEN then
             local sw, sh = love.graphics.getDimensions()
             if mx > 2 * sw / 3 and my > 2 * sh / 3 then
                 mx = (mx - (2 * sw / 3)) * 3
@@ -478,8 +478,11 @@ module {
             v.x = v.x - (v.x * drag * dt)
             v.y = v.y - (v.y * drag * dt)
 
+            local w, h = love.window.getMode()
+            local n = math.max(w, h)
+
             self.velocities[k] = v
-            self.distance_out[k] = d
+            self.distance_out[k] = d / n
 
             offset.x = offset.x + v.x * dt
             offset.y = offset.y + v.y * dt
@@ -736,12 +739,12 @@ module {
         end
 
         local function f(key)
-            local offset = self._offsets[key] or 0
-            local freq = self.freq
+            local offset = self._offsets[key] or love.math.random()
+            local freq = math.pow(np1(self.freq), 3) * 10
             self._offsets[key] = offset + dt * freq
             offset = self._offsets[key]
             if self.sin then
-                self.out[key] = 1 + math.sin(offset * math.pi) / 2
+                self.out[key] = (1 + math.sin(offset * math.pi)) / 2
             else
                 self.out[key] = offset % 1
             end
@@ -756,6 +759,25 @@ module {
 }
 
 module {
+    name = 'rerange',
+    parts = {
+        input = {'In', 'port', 'number', 'in'},
+        min = {'Min', 'knob', default=0},
+        max = {'Max', 'knob', default=1},
+        output = {'Out', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'input', 'min', 'max', 'output'}
+    },
+    update = function(self)
+        Utils.cell_map(self.input, function(key, value)
+            self.output[key] = self.min + value * (self.max - self.min)
+        end)
+        Utils.cell_trim(self.input, self.output)
+    end
+}
+
+module {
     name = 'clear',
     parts = {
         color = {'C', 'port', 'color', 'in'}
@@ -764,20 +786,48 @@ module {
         {'color'}
     },
     update = function(self)
-        clear_color = self.color.default or {0, 0, 0, 1}
+        CLEAR_COLOR = self.color.default or {0, 0, 0, 1}
     end
 }
+
+local function buttonToNumber(b1, b2, b3, b4)
+    local which = 0
+    which = which + (b1 and 1 or 0)
+    which = which + (b2 and 2 or 0)
+    which = which + (b3 and 4 or 0)
+    which = which + (b4 and 8 or 0)
+    return which + 1
+end
+
+local function parseBank(bank)
+    local output = {}
+    for line in love.filesystem.lines(bank) do
+        if not line:match("^#") then
+            local row = {}
+            for m in string.gmatch(line, "%S+") do
+                table.insert(row, m)
+            end
+            table.insert(output, row)
+        end
+    end
+    return output
+end
 
 local images = {}
 local i = 0
 -- for line in love.filesystem.lines("images/bank_1") do
-for line in love.filesystem.lines("images/bank_2") do
+--[[for line in love.filesystem.lines("images/bank_2") do
     -- comments
     if not line:match("^#") then
         images[i] = love.graphics.newImage("images/" .. line)
         images[i]:setFilter('nearest')
         i = i + 1
     end
+end]]--
+
+for i, line in pairs(parseBank("images/bank_2")) do
+    images[i] = love.graphics.newImage("images/" .. line[1])
+    images[i]:setFilter("nearest")
 end
 
 module {
@@ -804,11 +854,7 @@ module {
             local c = self.colors[key] or {1, 1, 1, 1}
             local s = self.scales[key] or .5
             s = math.pow(s, 2) * 4
-            local which = 0
-            which = which + (self.btn_1 and 1 or 0)
-            which = which + (self.btn_2 and 2 or 0)
-            which = which + (self.btn_3 and 4 or 0)
-            which = which + (self.btn_4 and 8 or 0)
+            local which = buttonToNumber(self.btn_1, self.btn_2, self.btn_3, self.btn_4)
             local sx, sy = Utils.denorm_point(position.x, position.y)
             local sprite = images[which]
             local sw, sh = sprite:getDimensions()
@@ -819,9 +865,150 @@ module {
     end
 }
 
-local function _toa(target, offset, attenuvert)
-    return (target * (1 - math.abs(attenuvert))) + (offset * attenuvert)
+local sfx = {}
+
+for i, line in pairs(parseBank("sfx/bank_1")) do
+    local sources = {}
+    for j, filename in pairs(line) do
+        table.insert(sources, love.audio.newSource("sfx/" .. filename, "static"))
+    end
+    sfx[i] = sources
 end
+
+module {
+    name = 'sfx',
+    parts = {
+        play = {'Play', 'port', 'number', 'in'},
+        pitch = {'Pitch', 'port', 'number', 'in', default=.5},
+        pitch_k = {'', 'knob', default=.5},
+        volume = {'Vol', 'port', 'number', 'in', default=.5},
+        volume_k = {'', 'knob', default=.5},
+        btn_1 = {'Sfx', 'button', default=false},
+        btn_2 = {'', 'button', default=false},
+        btn_3 = {'', 'button', default=false},
+        btn_4 = {'', 'button', default=false},
+    },
+    layout = {
+        {'play', 'pitch', 'volume', ''},
+        {'', 'pitch_k', 'volume_k', ''},
+        {'btn_1', 'btn_2', 'btn_3', 'btn_4'},
+    },
+    start = function(self)
+        self._pv = {}
+    end,
+    restart = function(self)
+        self._pv = {}
+    end,
+    update = function(self)
+        local sfxi = buttonToNumber(self.btn_1, self.btn_2, self.btn_3, self.btn_4)
+        local function updateKey(key, v)
+            local pv = self._pv[key] or 0
+            if v > .5 and pv <= .5 then
+                local sources = sfx[sfxi]
+                local source = sources[love.math.random(1, #sources)]
+                local pitchv = self.pitch[key] or .5
+                local volumev = self.volume[key] or .5
+                local pitch = (pitchv + .5) * (self.pitch_k + .5)
+                local volume = (volumev + .5) * (self.volume_k + .5)
+                source:setPitch(pitch)
+                source:setVolume(volume)
+                source:stop()
+                love.audio.play(source)
+            end
+            self._pv[key] = v
+        end
+        for key, v in pairs(self.play) do
+            updateKey(key, v)
+        end
+        updateKey("default", self.play.default or 0)
+    end,
+}
+
+local animations = {}
+
+for i, line in pairs(parseBank("animations/bank_1")) do
+    local path, width, height = line[1], line[2], line[3]
+    path = "animations/" .. path
+    local quads = {}
+    local image = love.graphics.newImage(path)
+    local iw, ih = image:getDimensions()
+    print(image:getWidth(), width, image:getWidth() / width)
+    for i=0,image:getWidth()/width-1 do
+        table.insert(quads, love.graphics.newQuad(i*width,0,width,height,iw,ih))
+    end
+    table.insert(animations, {
+        image=image,
+        quads=quads,
+        width = width,
+        height = height
+    })
+end
+
+module {
+    name = 'animations',
+    parts = {
+        positions = {'V', 'port', 'vector', 'in'},
+        rotations = {'R', 'port', 'number', 'in'},
+        scales = {'S', 'port', 'number', 'in'},
+        colors = {'C', 'port', 'color', 'in'},
+        frame = {'F', 'port', 'number', 'in'},
+        frame_out = {'F', 'port', 'number', 'out'},
+        ping_pong = {'Pong', 'button', default=false},
+        speed = {'Spd', 'knob'},
+        speed_in = {'Spd', 'port', 'number', 'in'},
+        draw_order = {'DO', 'knob'},
+        btn_1 = {'Sprite', 'button', default=false},
+        btn_2 = {'', 'button', default=false},
+        btn_3 = {'', 'button', default=false},
+        btn_4 = {'', 'button', default=false},
+    },
+    layout = {
+        {'draw_order', '', '', 'frame_out'},
+        {'positions', 'rotations', 'scales', 'colors'},
+        {'frame', 'speed', 'speed_in', 'ping_pong'},
+        {'btn_1', 'btn_2', 'btn_3', 'btn_4'},
+    },
+    start = function(self)
+        self._frames = {}
+    end,
+    restart = function(self)
+        self._frames = {}
+    end,
+    update = function(self, dt)
+        Utils.cell_map(self.positions, function(key, position)
+            local f = self._frames[key] or 0
+            local speed = (self.speed_in[key] or 1) * math.pow((self.speed * 2), 3)
+            f = f + dt * speed
+            f = f % 1
+            self._frames[key] = f
+        end)
+        Utils.cell_trim(self.positions, self._frames)
+    end,
+    draw = function(self)
+        Utils.cell_map(self.positions, function(key, position)
+            local r = self.rotations[key] or 0
+            local c = self.colors[key] or {1, 1, 1, 1}
+            local s = self.scales[key] or .5
+            s = math.pow(s, 2) * 4
+            local frame = self.frame[key] or self._frames[key] or 0
+            local which = buttonToNumber(self.btn_1, self.btn_2, self.btn_3, self.btn_4)
+            which = math.min(which, #animations)
+
+            local animation = animations[which]
+            local qi = 1 + math.floor(frame * #animation.quads)
+            qi = math.min(#animation.quads, math.max(1, qi))
+            local quad = animation.quads[qi]
+            local image = animation.image
+
+            local sx, sy = Utils.denorm_point(position.x, position.y)
+            local sw, sh = animation.width, animation.height
+            love.graphics.setColor(c)
+            love.graphics.draw(image, quad, sx, sy, r * math.pi * 2, s, s, sw / 2, sh / 2)
+        end)
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+}
+
 
 module {
     name = 'toa',
@@ -838,11 +1025,11 @@ module {
         {'output_1'},
     },
     update = function(self, dt)
-        local at = self.attenuvert_1
-        for key, value in pairs(self.offset_1) do
-            self.output_1[key] = _toa(self.target_1, value, self.attenuvert_1 * 2  - 1)
-        end
-        self.output_1.default = _toa(self.target_1, self.offset_1.default or 0, self.attenuvert_1 * 2  - 1)
+        local at = np1(self.attenuvert_1)
+        local target_1 = self.target_1
+        Utils.cell_map(self.offset_1, function(key, offset)
+            self.output_1[key] = (target_1 * (1 - math.abs(at))) + (offset * at)
+        end)
     end
 }
 
