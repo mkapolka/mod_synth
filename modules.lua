@@ -20,14 +20,22 @@ module {
     name = 'wrap',
     parts = {
         points = {'V', 'port', 'vector'},
-        output = {'Vout', 'port', 'vector', 'out'}
+        output = {'Vout', 'port', 'vector', 'out'},
+        give = {'Give', 'knob', default=1}
     },
     layout = {
-        {'points', 'output'}
+        {'points', 'output'},
+        {'give', ''}
     },
     update = function(self, dt)
+        -- 0 -> 2
+        local give = 1 + np1(self.give)
         for k, v in pairs(self.points) do
-            local v = {x = np1(z1(v.x) % 1), y = np1(z1(v.y) % 1)}
+            local x, y = v.x, v.y
+            x = (x + give) % (give * 2) - give
+            y = (y + give) % (give * 2) - give
+            --local v = {x = np1(z1(v.x) % give), y = np1(z1(v.y) % give)}
+            local v = {x=x, y=y}
             self.output[k] = v
         end
 
@@ -358,19 +366,20 @@ module {
         local rx = math.floor(20 * res)
         local ry = math.floor(20 * res)
         local seen = {}
-        for x=0,rx do
-            for y = 0,ry do
-                local fx = (x / rx) * 2 - 1
-                local fy = (y / ry) * 2 - 1
-                local key = 'grid_' .. self.id .. '_' .. (x * rx + y)
-                local p = self.points[key] or {}
-                p.x = fx + np1(love.math.noise(fx, fy)) * self.wobble
-                p.y = fy + np1(love.math.noise(fx, fy)) * self.wobble
-                self.points[key] = p
-                seen[key] = true
+        if rx > 0 and ry > 0 then
+            for x=0,rx do
+                for y = 0,ry do
+                    local fx = np1(x / rx)
+                    local fy = np1(y / ry)
+                    local key = 'grid_' .. self.id .. '_' .. (x * (rx + 1) + y)
+                    local p = self.points[key] or {}
+                    p.x = fx + np1(love.math.noise(fx, fy)) * self.wobble
+                    p.y = fy + np1(love.math.noise(fx, fy)) * self.wobble
+                    self.points[key] = p
+                    seen[key] = true
+                end
             end
         end
-        local nk = next(self.points)
         for key, value in pairs(self.points) do
             if not seen[key] then
                 self.points[key] = nil
@@ -434,6 +443,7 @@ module {
             local dx = target.x - guyx
             local dy = target.y - guyy
             local d = math.sqrt(dx * dx + dy * dy)
+            local dout = d
             local min = self.min_knob
             local max = self.max_knob
             if self.max_knob == 1 then
@@ -478,11 +488,8 @@ module {
             v.x = v.x - (v.x * drag * dt)
             v.y = v.y - (v.y * drag * dt)
 
-            local w, h = love.window.getMode()
-            local n = math.max(w, h)
-
             self.velocities[k] = v
-            self.distance_out[k] = d / n
+            self.distance_out[k] = dout / 2
 
             offset.x = offset.x + v.x * dt
             offset.y = offset.y + v.y * dt
@@ -1004,8 +1011,38 @@ module {
             local sw, sh = animation.width, animation.height
             love.graphics.setColor(c)
             love.graphics.draw(image, quad, sx, sy, r * math.pi * 2, s, s, sw / 2, sh / 2)
-        end)
+        end, false)
         love.graphics.setColor(1, 1, 1, 1)
+    end
+}
+
+module {
+    name = 'debug',
+    parts = {
+        positions_1 = {'V', 'port', 'vector', 'in'},
+        positions_2 = {'V2', 'port', 'vector', 'in'},
+        numbers_1 = {'N', 'port', 'number', 'in'},
+        numbers_2 = {'N', 'port', 'number', 'in'},
+    },
+    layout = {
+        {'positions_1', 'positions_2'},
+        {'numbers_1', 'numbers_2'},
+    },
+    draw = function(self)
+        Utils.cell_map(self.positions_1, function(k, p)
+            local x, y = Utils.denorm_point(p.x, p.y)
+            --local p2 = self.positions_2[k]
+            local n1 = self.numbers_1[k]
+            local n2 = self.numbers_2[k]
+            love.graphics.circle('line', x, y, 10)
+            love.graphics.print(k, x, y)
+            if n1 then
+                love.graphics.print(n1, x, y + 10)
+            end
+            if n2 then
+                love.graphics.print(n2, x, y)
+            end
+        end)
     end
 }
 
@@ -1085,7 +1122,9 @@ module {
                 self.distance[key] = nil
             end
         end
+        local seen = {}
         for key in Utils.all_keys(self.vector_1, self.vector_2) do
+            seen[key] = true
             local v1 = self.vector_1[key] or {x=0, y=0}
             local v2 = self.vector_2[key] or {x=0, y=0}
             self.offset[key] = rawget(self.offset, key) or {}
@@ -1094,6 +1133,8 @@ module {
             local dx, dy = v1.x - v2.x, v1.y - v2.y
             self.distance[key] = math.sqrt(dx * dx + dy * dy)
         end
+
+        Utils.cell_trim(seen, self.distance, {self.offset})
     end
 }
 

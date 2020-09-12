@@ -587,7 +587,7 @@ local function load_save(which)
 end
 
 local function clear_edges()
-    edges = {}
+    EDGES = {}
     update_ports()
     vim.show_message("Patches cleared.")
 end
