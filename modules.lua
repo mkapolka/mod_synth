@@ -34,16 +34,13 @@ module {
             local x, y = v.x, v.y
             x = (x + give) % (give * 2) - give
             y = (y + give) % (give * 2) - give
-            --local v = {x = np1(z1(v.x) % give), y = np1(z1(v.y) % give)}
-            local v = {x=x, y=y}
+            local v = self.output[k] or {}
+            v.x = x
+            v.y = y
             self.output[k] = v
         end
 
-        for k, v in pairs(self.output) do
-            if not self.points[k] then
-                self.output[k] = nil
-            end
-        end
+        Utils.cell_trim(self.points, self.output)
     end
 }
 
