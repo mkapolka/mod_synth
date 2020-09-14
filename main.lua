@@ -561,22 +561,34 @@ local function load_save(which)
         local data = binser.deserialize(saveString)[1]
 
         for key, module in pairs(data.modules) do
-            rack(module.module_type, module.x, module.y, key)
+            local template = module_types[module.module_type]
+            if template then
+                rack(module.module_type, module.x, module.y, key)
 
-            if module.parts then
-                local in_module = MODULES[key]
-                for key, value in pairs(module.parts) do
-                    if in_module.parts[key] then
-                        in_module.parts[key].value = value
+                if module.parts then
+                    local in_module = MODULES[key]
+                    for key, value in pairs(module.parts) do
+                        if template.parts[key] then
+                            if in_module.parts[key] then
+                                in_module.parts[key].value = value
+                            end
+                        end
                     end
                 end
             end
-
         end
 
         for _, edge in pairs(data.edges) do
-            table.insert(EDGES, edge)
-            update_bezier(edge)
+            local pid1, pid2 = edge[1], edge[2]
+            local mid1, key1 = pid1[1], pid1[2]
+            local mid2, key2 = pid2[1], pid2[2]
+
+            if MODULES[mid1] and MODULES[mid2] and MODULES[mid1].parts[key1] and MODULES[mid2].parts[key2] then
+                table.insert(EDGES, edge)
+                update_bezier(edge)
+            else
+                print("Culling missing edge: ", mid1, key1, mid2, key2)
+            end
         end
         update_ports()
 
