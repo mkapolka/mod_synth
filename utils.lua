@@ -60,7 +60,7 @@ end
 
 function Utils.cell_trim(pk_cell, out_cell, other_cells)
     for key in pairs(out_cell) do
-        if not rawget(pk_cell, key) then
+        if key ~= "default" and not rawget(pk_cell, key) then
             out_cell[key] = nil
             if other_cells then
                 for k2, other in pairs(other_cells) do

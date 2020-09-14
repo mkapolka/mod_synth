@@ -176,7 +176,7 @@ module {
         points = {'V', 'port', 'vector'},
         radii = {'R', 'port', 'number'},
         color = {'C', 'port', 'color', 'in'},
-        radius_knob = {'R', 'knob'},
+        radius_knob = {'R', 'knob', default=.75},
         fill_mode = {'fill', 'button', default=false},
         draw_order = {'DO', 'knob'},
     },
@@ -187,7 +187,14 @@ module {
     draw = function(self)
         for k, v in pairs(self.points) do
             local c = self.color[k] or {1, 1, 1, 1}
-            local r = (self.radii[k] or 1) * self.radius_knob * 100
+            local r = 1
+            if np1(self.radius_knob) < 0 then
+                local rk = math.pow(np1(self.radius_knob), 2) * 500
+                r = (1 - (self.radii[k] or 0)) * rk
+            else
+                local rk = math.pow(np1(self.radius_knob), 2) * 500
+                r = (self.radii[k] or 1) * rk
+            end
             local nx, ny = Utils.denorm_point(v.x, v.y)
             love.graphics.setColor(unpack(c))
             local mode = 'line'
@@ -348,30 +355,38 @@ module {
 module {
     name = 'grid',
     parts = {
-        res_knob = {'Res', 'knob', 'number'},
+        res_knob_x = {'ResX', 'knob', 'number'},
+        res_knob_y = {'ResY', 'knob', 'number'},
+        width = {'Width', 'knob'},
+        height = {'Height', 'knob'},
         wobble = {'Wob', 'knob', 'number', default=0},
         points = {'Out', 'port', 'vector', 'out'},
     },
     layout = {
-        {'res_knob', 'wobble'},
-        {'', 'points'}
+        {'res_knob_x', 'res_knob_y'},
+        {'width', 'height'},
+        {'wobble', 'points'}
     },
     update = function(self, dt)
         --local res = ((self.resolution.default or .5) + 1) * .5
-        local res = 1
-        res = res * self.res_knob
-        local rx = math.floor(20 * res)
-        local ry = math.floor(20 * res)
+        local res_x = self.res_knob_x
+        local res_y = self.res_knob_y
+        local rx = math.floor(20 * res_x)
+        local ry = math.floor(20 * res_y)
+        local width = 1 + np1(self.width)
+        local height = 1 + np1(self.height)
+        local wobble_x = self.wobble * width
+        local wobble_y = self.wobble * height
         local seen = {}
         if rx > 0 and ry > 0 then
             for x=0,rx do
                 for y = 0,ry do
-                    local fx = np1(x / rx)
-                    local fy = np1(y / ry)
+                    local fx = np1(x / rx) * width
+                    local fy = np1(y / ry) * height
                     local key = 'grid_' .. self.id .. '_' .. (x * (rx + 1) + y)
                     local p = self.points[key] or {}
-                    p.x = fx + np1(love.math.noise(fx, fy)) * self.wobble
-                    p.y = fy + np1(love.math.noise(fx, fy)) * self.wobble
+                    p.x = fx + np1(love.math.noise(fx, fy)) * wobble_x
+                    p.y = fy + np1(love.math.noise(fx, fy)) * wobble_y
                     self.points[key] = p
                     seen[key] = true
                 end
@@ -695,7 +710,7 @@ module {
     update = function(self, dt)
         local rough = self.roughness * 10
         self._drift = self._drift or 0
-        self._drift = self._drift + dt * self.drift
+        self._drift = self._drift + dt * math.pow(self.drift, 3) * 20
 
         for key in pairs(self.output) do
             if not self.vectors[key] then
@@ -936,7 +951,6 @@ for i, line in pairs(parseBank("animations/bank_1")) do
     local quads = {}
     local image = love.graphics.newImage(path)
     local iw, ih = image:getDimensions()
-    print(image:getWidth(), width, image:getWidth() / width)
     for i=0,image:getWidth()/width-1 do
         table.insert(quads, love.graphics.newQuad(i*width,0,width,height,iw,ih))
     end
@@ -1100,6 +1114,86 @@ module {
 }
 
 module {
+    name = 'vector-?',
+    parts = {
+        -- Number -> Vector
+        x = {'X', 'port', 'number', 'in'},
+        y = {'Y', 'port', 'number', 'in'},
+        x_attenuvert = {'av', 'knob'},
+        y_attenuvert = {'av', 'knob'},
+        xy = {'XY', 'port', 'vector', 'out'},
+        rl = {'RL', 'port', 'vector', 'out'},
+        vec_p1 = {'+1', 'button', default=false},
+        -- Vector methods
+        v1 = {'V1', 'port', 'vector', 'in'},
+        v2 = {'V2', 'port', 'vector', 'in'},
+        v1_attenuvert = {'av', 'knob'},
+        v2_attenuvert = {'av', 'knob'},
+        plus = {'+', 'port', 'vector', 'out'},
+        theta = {'Theta', 'port', 'number', 'out'},
+        delta = {'Delta', 'port', 'number', 'out'},
+        x_out = {'X', 'port', 'number', 'out'},
+        y_out = {'Y', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'x', 'y', 'vec_p1', 'v1', 'v2', 'x_out', 'y_out'},
+        {'x_attenuvert', 'y_attenuvert', '', 'v1_attenuvert', 'v2_attenuvert', 'theta', 'delta'},
+        {'xy', 'rl', '', 'plus', '', ''},
+    },
+    update = function(self, dt)
+        local bonus = {}
+        if self.vec_p1 then
+            bonus = {[self.id] = true}
+        end
+        local xy_cells = {}
+        for key in Utils.all_keys(self.x, self.y, bonus, {default=true}) do
+            xy_cells[key] = true
+            local xy = rawget(self.xy, key) or {}
+            local x = np1(self.x[key] or 0) * np1(self.x_attenuvert)
+            local y = np1(self.y[key] or 0) * np1(self.y_attenuvert)
+            xy.x = x
+            xy.y = y
+            self.xy[key] = xy
+
+            local rl = rawget(self.rl, key) or {}
+            rl.x = math.cos(z1(x) * math.pi * 2) * z1(y)
+            rl.y = math.sin(z1(x) * math.pi * 2) * z1(y)
+            self.rl[key] = rl
+        end
+        Utils.cell_trim(xy_cells, self.xy, {self.rl})
+
+        local v_keys = {}
+        for key in Utils.all_keys(self.v1, self.v2) do
+            v_keys[key] = true
+            local plus = rawget(self.plus, key) or {}
+            local v1 = self.v1[key] or {x=0, y=0}
+            local v2 = self.v2[key] or {x=0, y=0}
+            local v1x = v1.x * np1(self.v1_attenuvert)
+            local v1y = v1.y * np1(self.v1_attenuvert)
+            local v2x = v2.x * np1(self.v2_attenuvert)
+            local v2y = v2.y * np1(self.v2_attenuvert)
+            plus.x = v1x + v2x
+            plus.y = v1y + v2y
+            self.plus[key] = plus
+
+            local dx = v2x - v1x
+            local dy = v2y - v1y
+
+            local theta = math.atan2(dy, dx) / math.pi / 2
+            self.theta[key] = theta
+
+            local delta = math.sqrt(dx * dx + dy * dy)
+            self.delta[key] = delta
+
+            self.x_out[key] = z1(plus.x)
+            self.y_out[key] = z1(plus.y)
+        end
+
+        Utils.cell_trim(v_keys, self.plus, {self.theta, self.delta, self.x_out, self.y_out})
+    end
+}
+
+module {
     name = 'vector',
     parts = {
         vector_1 = {'V1', 'port', 'vector', 'in'},
@@ -1180,10 +1274,13 @@ module {
         for key in pairs(self.a) do
             if not self._left_associations[key] then
                 self._left_associations[key] = self._right_key
+                print(self._right_key)
                 self._right_key = next(self.b, self._right_key)
             end
             self.output[key] = self.b[self._left_associations[key]]
         end
+
+        Utils.cell_trim(self.a, self._left_associations)
 
         for key in pairs(self.b) do
             if not self._right_associations[key] then
@@ -1192,6 +1289,8 @@ module {
             end
             self.output[key] = self.a[self._right_associations[key]]
         end
+
+        Utils.cell_trim(self.b, self._right_associations)
     end
 }
 
@@ -1280,13 +1379,13 @@ module {
     },
     start = function(self, dt)
         self._pools = {}
+        self._r8 = {}
     end,
     restart = function(self, dt)
         self._pools = {}
+        self._r8 = {}
     end,
     update = function(self, dt)
-        self._r8 = self._r8 or 0
-
         for key, children in pairs(self._pools) do
             if not self.sources[key] then
                 for _, child in pairs(children) do
@@ -1295,15 +1394,14 @@ module {
             end
         end
 
-        self._r8 = self._r8 + dt
-        if self._r8 > (1 - self.rate) then
-            for key in pairs(self.sources) do
-                local fire = self.fire[key] or 0
-                if fire > .5 then
-                    bullet_fire(self, key)
-                end
+        for key in pairs(self.sources) do
+            local _r8 = self._r8[key] or 0
+            local fire = self.fire[key] or 0
+            if fire > .5 and _r8 < 0 then
+                bullet_fire(self, key)
+                _r8 = 1
             end
-            self._r8 = 0
+            self._r8[key] = _r8 - dt * math.pow(self.rate, 2) * 20
         end
 
         local i = 0
@@ -1321,5 +1419,7 @@ module {
                 bullet_remove(self, key)
             end
         end
+
+        Utils.cell_trim(self.sources, self._r8)
     end
 }
