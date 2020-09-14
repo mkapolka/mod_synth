@@ -252,7 +252,14 @@ local function visit_module(module, method, ...)
             end
         end
 
-        module[method](target, ...)
+        ok, err = pcall(module[method], target, ...)
+        if not ok then
+            print("ERROR CALLING " .. method .. ": " .. err)
+            print(debug.traceback())
+            module.erroring = true
+        else
+            module.erroring = false
+        end
     end
 end
 
@@ -738,10 +745,17 @@ end
 function love.draw(dt)
     if not FULLSCREEN then
         for key, module in pairs(MODULES) do
+            if module.erroring then
+                love.graphics.setColor(1, 0, 0, 1)
+            else
+                love.graphics.setColor(1, 1, 1, 1)
+            end
+
             local mx, my, mw, mh = module_dimensions(module)
             love.graphics.print(module.name, mx + 5, my + 5)
             love.graphics.rectangle('line', mx, my, mw, mh)
 
+            love.graphics.setColor(1, 1, 1, 1)
             for key, value in pairs(module.parts) do
                 if value.part_type == 'port' then
                     draw_port(module, key)
@@ -752,6 +766,7 @@ function love.draw(dt)
                 end
             end
         end
+        love.graphics.setColor(1, 1, 1, 1)
 
         if holding_module then
             local mx, my = love.mouse.getPosition()
