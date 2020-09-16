@@ -16,6 +16,22 @@ local function module(template)
     module_types[template.name] = template
 end
 
+local function attenuvert(input, knob)
+    if knob < .5 then
+        return (1 - input) * -np1(knob)
+    end
+    return input * np1(knob)
+end
+
+-- Experimental port / knob logic: If no input, knob = value
+-- With input, knob = attenuverter
+local function supervert(key, port, knob)
+    if port[key] ~= undefined then
+        return attenuvert(port[key], knob)
+    end
+    return knob
+end
+
 module {
     name = 'wrap',
     parts = {
@@ -188,20 +204,14 @@ module {
         for k, v in pairs(self.points) do
             local c = self.color[k] or {1, 1, 1, 1}
             local r = 1
-            if np1(self.radius_knob) < 0 then
-                local rk = math.pow(np1(self.radius_knob), 2) * 500
-                r = (1 - (self.radii[k] or 0)) * rk
-            else
-                local rk = math.pow(np1(self.radius_knob), 2) * 500
-                r = (self.radii[k] or 1) * rk
-            end
+            local radius = math.pow(supervert(key, self.radii, self.radius_knob), 1) * 400
             local nx, ny = Utils.denorm_point(v.x, v.y)
             love.graphics.setColor(unpack(c))
             local mode = 'line'
             if self.fill_mode then
                 mode = 'fill'
             end
-            love.graphics.circle(mode, nx, ny, r)
+            love.graphics.circle(mode, nx, ny, radius)
             love.graphics.setColor(1, 1, 1, 1)
         end
     end
@@ -648,25 +658,32 @@ module {
     },
     update = function(self)
         local function f(key)
-            local ht = self.hue_target_knob or 1
+            --[[local ht = self.hue_target_knob or 1
             local st = self.saturation_target_knob or 1
             local vt = self.value_target_knob or 1
             local at = self.alpha_target_knob or 1
             local h = rawget(self.hue, key) or ht
             local s = rawget(self.saturation, key) or st
             local v = rawget(self.value, key) or vt
-            local a = rawget(self.alpha, key) or at
-            local hout = (ht * (1 - self.hue_knob)) + (h * self.hue_knob)
-            local sout = (st * (1 - self.saturation_knob)) + (s * self.saturation_knob)
-            local vout = (vt * (1 - self.value_knob)) + (v * self.value_knob)
-            local aout = (at * (1 - self.alpha_knob)) + (a * self.alpha_knob)
-            local r, g, b = Utils.hsv(hout, sout,  vout)
-            self.output[key] = {r, g, b, aout}
+            local a = rawget(self.alpha, key) or at]]--
+            local h = self.hue_target_knob + supervert(key, self.hue, self.hue_knob)
+            local s = self.saturation_target_knob + supervert(key, self.saturation, self.saturation_knob)
+            local v = self.value_target_knob + supervert(key, self.value, self.value_knob)
+            local a = self.alpha_target_knob + supervert(key, self.alpha, self.alpha_knob)
+            --local hout = (ht * (1 - self.hue_knob)) + (h * self.hue_knob)
+            --local sout = (st * (1 - self.saturation_knob)) + (s * self.saturation_knob)
+            --local vout = (vt * (1 - self.value_knob)) + (v * self.value_knob)
+            --local aout = (at * (1 - self.alpha_knob)) + (a * self.alpha_knob)
+            local r, g, b = Utils.hsv(h, s, v)
+            self.output[key] = {r, g, b, a}
         end
+        local keys = {}
         for key in Utils.all_keys(self.hue, self.saturation, self.value, self.alpha) do
             f(key)
+            keys[key] = true
         end
         f('default')
+        Utils.cell_trim(keys, self.hue, {self.saturation, self.value, self.alpha})
     end
 }
 
@@ -774,6 +791,89 @@ module {
         if not self.ids.default then
             f('default')
         end
+    end
+}
+
+local function sinWave(d)
+    return z1(math.sin(d * math.pi * 2))
+end
+
+local function triWave(d)
+    if d < .5 then
+        return d * 2
+    else
+        return 1 - (d - .5) * 2
+    end
+end
+
+local function sawWave(d)
+    return d % 1
+end
+
+local shapes = {sinWave, triWave, sawWave}
+
+module {
+    name = 'lfo2',
+    parts = {
+        ids = {'Id', 'port', '*', 'in'},
+        random_start_1 = {'Rand', 'button'},
+        random_start_2 = {'Rand', 'button'},
+        sync_knob = {'Sync', 'knob'},
+        shape_1 = {'Shape', 'knob'},
+        freq_1 = {'F', 'port', 'number', 'in'},
+        freq_knob_1 = {'*', 'knob', default=.75},
+        amp_1 = {'A', 'port', 'number', 'in'},
+        amp_knob_1 = {'*', 'knob'},
+        shape_2 = {'Shape', 'knob'},
+        freq_2 = {'F', 'port', 'number', 'in'},
+        freq_knob_2 = {'*', 'knob'},
+        amp_2 = {'A', 'port', 'number', 'in', default=.75},
+        amp_knob_2 = {'*', 'knob'},
+        x_out = {'X', 'port', 'number', 'out'},
+        y_out = {'Y', 'port', 'number', 'out'},
+        xpy_out = {'X+Y', 'port', 'number', 'out'},
+        vector_out = {'V', 'port', 'vector', 'out'}
+    },
+    layout = {
+        {'ids', 'sync_knob', 'random_start_1', '' ,'' ,'random_start_2'},
+        {'shape_1', 'freq_1', 'amp_1', 'shape_2', 'freq_2', 'amp_2'},
+        {'', 'freq_knob_1', 'amp_knob_1', '', 'freq_knob_2', 'amp_knob_2'},
+        {'x_out', 'y_out', 'xpy_out', 'vector_out'}
+    },
+    update = function(self, dt)
+        self._offsets = self._offsets or {}
+        self._offsets_2 = self._offsets_2 or {}
+
+        local function f(key, offsets, shape, freq, freq_knob, amp, amp_knob, sync, rand, out)
+            local offset = offsets[key] or (rand and math.random() or 0)
+            local f = freq[key] or 1
+            local a = amp[key] or 1
+
+            local shape_f = shapes[1+math.floor(shape * (#shapes-1))]
+
+            local frequency = supervert(key, freq, freq_knob)
+            local amplitude = supervert(key, amp, amp_knob)
+            local shape_output = shape_f((offset + sync) % 1)
+            out[key] = shape_output * amplitude
+
+            offset = (offset + frequency * dt) % 1
+            offsets[key] = offset
+
+            return np1(shape_output) * amplitude
+        end
+
+        for key in Utils.all_keys(self.ids, {default=true}) do
+            local x = f(key, self._offsets, self.shape_1, self.freq_1, self.freq_knob_1, self.amp_1, self.amp_knob_1, 0, self.random_start_1, self.x_out)
+            local y = f(key, self._offsets_2, self.shape_2, self.freq_2, self.freq_knob_2, self.amp_2, self.amp_knob_2, self.sync_knob * .5, self.random_start_2, self.y_out)
+
+            self.xpy_out[key] = self.x_out[key] / 2 + self.y_out[key] / 2
+            local vout = rawget(self.vector_out, key) or {}
+            vout.x = x
+            vout.y = y
+            self.vector_out[key] = vout
+        end
+
+        Utils.cell_trim(self.ids, self.x_out, {self.y_out, self.vector_out})
     end
 }
 
@@ -1003,7 +1103,16 @@ module {
         Utils.cell_trim(self.positions, self._frames)
     end,
     draw = function(self)
-        Utils.cell_map(self.positions, function(key, position)
+        local keys = {}
+        for key, position in pairs(self.positions) do
+            table.insert(keys, {key, position})
+        end
+        table.sort(keys, function(a, b)
+            return a[2].y < b[2].y
+        end)
+        for i, p in ipairs(keys) do
+            local key = p[1]
+            local position = p[2]
             local r = self.rotations[key] or 0
             local c = self.colors[key] or {1, 1, 1, 1}
             local s = self.scales[key] or .5
@@ -1022,7 +1131,9 @@ module {
             local sw, sh = animation.width, animation.height
             love.graphics.setColor(c)
             love.graphics.draw(image, quad, sx, sy, r * math.pi * 2, s, s, sw / 2, sh / 2)
-        end, false)
+        end
+        --Utils.cell_map(self.positions, function(key, position)
+        --end, false)
         love.graphics.setColor(1, 1, 1, 1)
     end
 }
@@ -1076,7 +1187,8 @@ module {
         local at = np1(self.attenuvert_1)
         local target_1 = self.target_1
         Utils.cell_map(self.offset_1, function(key, offset)
-            self.output_1[key] = (target_1 * (1 - math.abs(at))) + (offset * at)
+            --self.output_1[key] = (target_1 * (1 - math.abs(at))) + (offset * at)
+            self.output_1[key] = self.target_1 + supervert(key, self.offset_1, self.attenuvert_1)
         end)
     end
 }
