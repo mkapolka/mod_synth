@@ -204,7 +204,7 @@ module {
         for k, v in pairs(self.points) do
             local c = self.color[k] or {1, 1, 1, 1}
             local r = 1
-            local radius = math.pow(supervert(key, self.radii, self.radius_knob), 1) * 400
+            local radius = supervert(k, self.radii, self.radius_knob) * 400
             local nx, ny = Utils.denorm_point(v.x, v.y)
             love.graphics.setColor(unpack(c))
             local mode = 'line'
@@ -658,22 +658,10 @@ module {
     },
     update = function(self)
         local function f(key)
-            --[[local ht = self.hue_target_knob or 1
-            local st = self.saturation_target_knob or 1
-            local vt = self.value_target_knob or 1
-            local at = self.alpha_target_knob or 1
-            local h = rawget(self.hue, key) or ht
-            local s = rawget(self.saturation, key) or st
-            local v = rawget(self.value, key) or vt
-            local a = rawget(self.alpha, key) or at]]--
             local h = self.hue_target_knob + supervert(key, self.hue, self.hue_knob)
             local s = self.saturation_target_knob + supervert(key, self.saturation, self.saturation_knob)
             local v = self.value_target_knob + supervert(key, self.value, self.value_knob)
             local a = self.alpha_target_knob + supervert(key, self.alpha, self.alpha_knob)
-            --local hout = (ht * (1 - self.hue_knob)) + (h * self.hue_knob)
-            --local sout = (st * (1 - self.saturation_knob)) + (s * self.saturation_knob)
-            --local vout = (vt * (1 - self.value_knob)) + (v * self.value_knob)
-            --local aout = (at * (1 - self.alpha_knob)) + (a * self.alpha_knob)
             local r, g, b = Utils.hsv(h, s, v)
             self.output[key] = {r, g, b, a}
         end
@@ -1533,5 +1521,127 @@ module {
         end
 
         Utils.cell_trim(self.sources, self._r8)
+    end
+}
+
+local function update_bars(dt, key, values, cooldowns, punch, when, v, v_knob)
+    local cooldown = cooldowns[key] or 0
+    local when = when[key] or 0
+    if (when > .5) then
+        local value = values[key] or 1
+        local k = math.pow(np1(v_knob), 3)
+        local delta = v[key] or 1 * k * 10
+        if punch and cooldown <= 0 then
+            value = value + delta
+            values[key] = value
+            cooldowns[key] = 1
+        end
+
+        if not punch then
+            value = value + delta * dt
+            values[key] = value
+        end
+    end
+end
+
+module {
+    name = 'bars',
+    parts = {
+        ids = {'ids', 'port', '*', 'in'},
+        init = {'init', 'knob'},
+        cd_knob = {'CD', 'knob', default=1},
+        one = {'1', 'port', 'number', 'out'},
+        punch_1 = {'Punch', 'button'},
+        when_1 = {'When', 'port', 'number', 'in'},
+        v_1 = {'V', 'port', 'number', 'in'},
+        v_knob_1 = {'*', 'knob', default=1},
+        punch_2 = {'Punch', 'button'},
+        when_2 = {'When', 'port', 'number', 'in'},
+        v_2 = {'V', 'port', 'number', 'in'},
+        v_knob_2 = {'*', 'knob', default=1},
+        punch_3 = {'Punch', 'button'},
+        when_3 = {'When', 'port', 'number', 'in'},
+        v_3 = {'V', 'port', 'number', 'in'},
+        v_knob_3 = {'*', 'knob', default=1},
+        value_out = {'V', 'port', 'number', 'out'},
+        empty_out = {'MT', 'port', 'number', 'out'},
+        full_out = {'FUL', 'port', 'number', 'out'},
+        cd_out = {'CD', 'port', 'number', 'out'},
+    },
+    layout = {
+        {'ids', 'init', 'cd_knob', 'one'},
+        {'punch_1', 'when_1', 'v_1', 'v_knob_1'},
+        {'punch_2', 'when_2', 'v_2', 'v_knob_2'},
+        {'punch_3', 'when_3', 'v_3', 'v_knob_3'},
+        {'value_out', 'empty_out', 'full_out', 'cd_out'}
+    },
+    update = function(self, dt)
+        self.one.default = 1
+        for key in Utils.all_keys(self.ids, {default=true}) do
+            if not rawget(self.value_out, key) then
+                self.value_out[key] = self.init
+            end
+            if not self.value_out.default then
+                self.value_out.default = self.init
+            end
+
+            update_bars(dt, key, self.value_out, self.cd_out, self.punch_1, self.when_1, self.v_1, self.v_knob_1)
+            update_bars(dt, key, self.value_out, self.cd_out, self.punch_2, self.when_2, self.v_2, self.v_knob_2)
+            update_bars(dt, key, self.value_out, self.cd_out, self.punch_3, self.when_3, self.v_3, self.v_knob_3)
+
+            local cd = (self.cd_out[key] or 0) - dt / (math.pow(math.max(self.cd_knob, .0001), 3) * 10)
+            cd = math.max(0, cd)
+
+            local value = self.value_out[key] or .5
+            value = math.min(math.max(value, 0), 1)
+            self.value_out[key] = value
+
+            self.cd_out[key] = cd
+            self.empty_out[key] = value < .01 and 1 or 0
+            self.full_out[key] = value > .99 and 1 or 0
+        end
+    end
+}
+
+module {
+    name = 'rectangles',
+    parts = {
+        positions = {'V', 'port', 'vector', 'in'},
+        width = {'W', 'port', 'number', 'in'},
+        width_knob = {'*', 'knob', default=.5},
+        height = {'H', 'port', 'number', 'in'},
+        height_knob = {'*', 'knob', default=.5},
+        color = {'C', 'port', 'color', 'in'},
+        draw_order = {'DO', 'knob'},
+        rotation = {'R', 'port', 'number', 'in'},
+        rotation_knob = {'*', 'knob'},
+        fill_mode = {'fill', 'button'},
+    },
+    layout = {
+        {'draw_order', 'positions', 'color', 'fill_mode'},
+        {'width', 'height', 'rotation'},
+        {'width_knob', 'height_knob', 'rotation_knob'},
+    },
+    draw = function(self)
+        local ww, wh = love.window.getMode()
+        for key, position in pairs(self.positions) do
+            --local position = self.positions[key] or {x=0, y=0}
+            local x, y = Utils.denorm_point(position.x, position.y)
+            local width = supervert(key, self.width, self.width_knob)
+            local height = supervert(key, self.height, self.height_knob)
+            local rotation = supervert(key, self.rotation, self.rotation_knob)
+            local color = self.color[key] or {1,1,1,1}
+            local fill = self.fill_mode and 'fill' or 'line'
+
+            local w = width * ww
+            local h = height * wh
+
+            love.graphics.push()
+                love.graphics.setColor(color[1], color[2], color[3], color[4])
+                love.graphics.translate(x, y)
+                love.graphics.rotate(rotation * math.pi * 2)
+                love.graphics.rectangle(fill, -w/2, -h/2, w, h)
+            love.graphics.pop()
+        end
     end
 }
