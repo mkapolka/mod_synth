@@ -1,4 +1,5 @@
 local Utils = require "utils"
+local socket = require "socket"
 
 -- n is a number between -1 and 1,
 -- output is between 0 and 1
@@ -221,10 +222,11 @@ module {
     name = 'mouse',
     parts = {
         clicks = {'CLK', 'port', 'vector', 'out'},
-        position = {'POS', 'port', 'vector', 'out'}
+        position = {'POS', 'port', 'vector', 'out'},
+        down = {'DWN', 'port', 'number', 'out'}
     },
     layout = {
-        {'clicks', 'position'}
+        {'clicks', 'position', 'down'}
     },
     restart = function(self)
         for k, v in pairs(mclicks) do
@@ -261,6 +263,8 @@ module {
         self.position.default.y = ny
         self.position.point.x = nx
         self.position.point.y = ny
+
+        self.down.default = love.mouse.isDown(1) and 1 or 0
     end
 }
 
@@ -727,8 +731,6 @@ module {
         for key, value in pairs(self.vectors) do
             local nx, ny = value.x * rough, value.y * rough
             self.output[key] = love.math.noise(nx, ny, self._drift)
-            -- local dx = love.math.noise(nx - .5, ny, self._drift) - love.math.noise(nx + .5, ny, self._drift)
-            -- local dy = love.math.noise(nx, ny - .5, self._drift) - love.math.noise(nx, ny + .5, self._drift)
             local dx = love.math.noise(nx, ny, self._drift)
             local dy = love.math.noise(nx + 100, ny + 100, self._drift)
             self.output_vector[key] = {x=np1(dx), y=np1(dy)}
@@ -764,7 +766,7 @@ module {
 
         local function f(key)
             local offset = self._offsets[key] or love.math.random()
-            local freq = math.pow(np1(self.freq), 3) * 10
+            local freq = math.pow(np1(self.freq), 3) * 30
             self._offsets[key] = offset + dt * freq
             offset = self._offsets[key]
             if self.sin then
@@ -1395,6 +1397,63 @@ module {
 }
 
 module {
+    name = 'adsr',
+    parts = {
+        input = {'In', 'port', 'number', 'in'},
+        attack = {'A', 'knob'},
+        decay = {'D', 'knob'},
+        sustain = {'S', 'knob'},
+        release = {'R', 'knob'},
+        output = {'Out', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'input'},
+        {'attack'},
+        {'decay'},
+        {'sustain'},
+        {'release'},
+        {'output'},
+    },
+    update = function(self, dt)
+        self.values = self.values or {}
+        self._stages = self._stages or {}
+        for key in Utils.all_keys(self.input) do
+            local value = self.input[key] or 0
+            local output = self.output[key] or 0
+            local stage = self._stages[key] or 'attack'
+            if value > .5 then
+                if stage == 'attack' then
+                    output = output + math.pow(self.attack, 2) * 60 * dt
+                    if output >= 1 then
+                        stage = 'decay'
+                        output = 1
+                    end
+                elseif stage == 'decay' then
+                    output = output - math.pow(self.decay, 2) * 60 * dt
+                    if output <= self.sustain then
+                        output = self.sustain
+                        stage = 'sustain'
+                    end
+                elseif stage == 'sustain' then
+                    -- in the case of changing sustain value
+                    output = self.sustain
+                end
+            else -- no on
+                output = output - math.pow(self.release, 2) * 60 * dt
+                output = math.max(output, 0)
+                stage = 'attack'
+            end
+
+            self.output[key] = output
+            self._stages[key] = stage
+        end
+
+        Utils.cell_trim(self.input, self.output, {self._stages})
+    end
+}
+
+-- TODO: Deprecate
+module {
     name = 'note',
     parts = {
         hit = {'Hit', 'port', 'number', 'in'},
@@ -1643,5 +1702,137 @@ module {
                 love.graphics.rectangle(fill, -w/2, -h/2, w, h)
             love.graphics.pop()
         end
+    end
+}
+
+local midi = {}
+local midiChannel = love.thread.getChannel('midi')
+
+src = [[
+local socket = require "socket"
+local client = socket.tcp()
+client:connect("localhost", 9999)
+local channel = love.thread.getChannel('midi')
+while true do
+    line = client:receive("*l")
+    if line then
+        m = string.gmatch(line, "%d+")
+        c = m()
+        v = m()
+        channel:push({c, v})
+    else
+        print("Couldn't connect to MIDI server... Did you remember to start it with midi_server.py?")
+        break
+    end
+end
+]]
+love.thread.newThread(src):start()
+
+local midiParts = {}
+for i=1,16 do
+    midiParts["p" .. i] = {tostring(i), 'port', 'number', 'out'}
+end
+
+module {
+    name = 'midi',
+    parts = midiParts,
+    layout = {
+        {'p1', 'p2', 'p3', 'p4'},
+        {'p5', 'p6', 'p7', 'p8'},
+        {'p9', 'p10', 'p11', 'p12'},
+        {'p13', 'p14', 'p15', 'p16'},
+    },
+    update = function(self, dt)
+        for i=1,midiChannel:getCount() do
+            local v = midiChannel:pop()
+            if v then
+                local c = tonumber(v[1]) + 1
+                local v = tonumber(v[2])
+                print("Setting", c, "to", v)
+                midi[c] = v / 127
+            end
+        end
+        for i=1,16 do
+            local key = "p" .. i
+            self[key].default = midi[i] or 0
+        end
+    end
+}
+
+--[[module {
+    name = 'bonkers',
+    parts = {
+        position = {'V', 'port', 'vector', 'in'},
+        radius_knob = {'R', 'knob'},
+    }
+}]]--
+
+local function copy_table(t)
+    if not t then return nil end
+
+    local output = {}
+    for key, value in pairs(t) do
+        output[key] = value
+    end
+    return output
+end
+
+module {
+    name = 'stamper',
+    parts = {
+        v1 = {'V1', 'port', 'vector', 'in'},
+        v2 = {'V2', 'port', 'vector', 'in'},
+        n1 = {'N1', 'port', 'number', 'in'},
+        n2 = {'N2', 'port', 'number', 'in'},
+        c1 = {'C1', 'port', 'color', 'in'},
+        c2 = {'C2', 'port', 'color', 'in'},
+        v1_out = {'V1', 'port', 'vector', 'out'},
+        v2_out = {'V2', 'port', 'vector', 'out'},
+        n1_out = {'N1', 'port', 'number', 'out'},
+        n2_out = {'N2', 'port', 'number', 'out'},
+        c1_out = {'C1', 'port', 'color', 'out'},
+        c2_out = {'C2', 'port', 'color', 'out'},
+        stamp = {'Stamp', 'port', 'number', 'in'},
+        reset = {'Reset', 'port', 'number', 'in'}
+    },
+    layout = {
+        {'v1', 'v2', '', 'v1_out', 'v2_out'},
+        {'n1', 'n2', 'stamp', 'n1_out', 'n2_out'},
+        {'c1', 'c2', 'reset', 'c1_out', 'c2_out'},
+    },
+    update = function(self, dt)
+        self.values = self.values or {}
+        self.stamping = self.stamping or false
+        self.iota = self.iota or 1
+
+        if (self.stamp.default or 0) > .5 then
+            if not self.stamping then
+                self.stamping = true
+                print("Stamping!")
+                self.v1_out[self.iota] = copy_table(self.v1.default) or {x=0, y=0}
+                self.v2_out[self.iota] = copy_table(self.v2.default) or {x=0, y=0}
+                self.n1_out[self.iota] = self.n1.default
+                self.n2_out[self.iota] = self.n2.default
+                self.c1_out[self.iota] = copy_table(self.c1.default) or {1, 1, 1, 1}
+                self.c2_out[self.iota] = copy_table(self.c2.default) or {1, 1, 1, 1}
+                self.iota = self.iota + 1
+            end
+        else
+            self.stamping = false
+        end
+
+        self.v1_out.next = self.v1.default
+        self.v2_out.next = self.v2.default
+        self.n1_out.next = self.n1.default
+        self.n2_out.next = self.n2.default
+        self.c1_out.next = self.c1.default
+        self.c2_out.next = self.c2.default
+
+        self.v1_out.default = self.v1.default
+        self.v2_out.default = self.v2.default
+        self.n1_out.default = self.n1.default
+        self.n2_out.default = self.n2.default
+        self.c1_out.default = self.c1.default
+        self.c2_out.default = self.c2.default
     end
 }
