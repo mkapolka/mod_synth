@@ -1452,52 +1452,6 @@ module {
     end
 }
 
--- TODO: Deprecate
-module {
-    name = 'note',
-    parts = {
-        hit = {'Hit', 'port', 'number', 'in'},
-        attack = {'ATK', 'knob'},
-        decay = {'DK', 'knob'},
-        output = {'Out', 'port', 'number', 'out'}
-    },
-    layout = {
-        {'hit', 'output'},
-        {'attack', 'decay'},
-    },
-    start = function(self)
-        self._state = {}
-    end,
-    restart = function(self)
-        self._state = {}
-    end,
-    update = function(self, dt)
-        Utils.cell_trim(self.hit, self.output, {self._v, self._state})
-
-        Utils.cell_map(self.hit, function(key, hit)
-            local state = self._state[key] or {}
-            self._state[key] = state
-            local prev = state.previous or 0
-            if prev < .5 and hit > .5 then
-                state.c = 0
-            end
-
-            state.c = state.c or 0
-            state.c = state.c + dt
-
-            if state.c < self.attack then
-                self.output[key] = state.c / self.attack
-            elseif state.c < self.attack + self.decay then
-                self.output[key] = 1 - (state.c - self.attack) / self.decay
-            else
-                self.output[key] = 0
-            end
-
-            state.previous = hit
-        end)
-    end
-}
-
 local bullet_iota = 0
 local function bullet_fire(self, source_key)
     local v = self.sources[source_key] or {x=0, y=0}
