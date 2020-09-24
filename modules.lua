@@ -309,8 +309,16 @@ module {
 
         touch.default = 0
 
-        for k in pairs(a) do
-            for j in pairs(b) do
+        local function touchSet(key, value)
+            local existing = rawget(touch, key) or 0
+            if key == "default" then
+                existing = touch.default or 0
+            end
+            touch[key] = math.max(existing, value or 0, 0)
+        end
+
+        for k in Utils.all_keys(a) do
+            for j in Utils.all_keys(b) do
                 if a[k] ~= b[j] then
                     local ar = touch_radius(aradius[k], arknob)
                     local br = touch_radius(bradius[k], brknob)
@@ -328,16 +336,12 @@ module {
                         else
                             local g = 2 + ((1 - self.gooshiness) * 100)
                             local v = (2.0 / (1.0 + math.exp(-g * (1 - f)))) - 1
-                            local tk = rawget(touch, k) or 0
-                            local tj = rawget(touch, j) or 0
-                            touch[k] = math.max(tk, v)
-                            touch[j] = math.max(tj, v)
+                            touchSet(k, v)
+                            touchSet(j, v)
                         end
                     else
-                        local tk = rawget(touch, k) or 0
-                        local tj = rawget(touch, j) or 0
-                        touch[k] = math.max(tk, 0)
-                        touch[j] = math.max(tj, 0)
+                        touchSet(k, v)
+                        touchSet(j, v)
                     end
                 end
             end
@@ -1141,19 +1145,22 @@ module {
         {'numbers_1', 'numbers_2'},
     },
     draw = function(self)
+        local offset = 0
         Utils.cell_map(self.positions_1, function(k, p)
             local x, y = Utils.denorm_point(p.x, p.y)
             --local p2 = self.positions_2[k]
             local n1 = self.numbers_1[k]
             local n2 = self.numbers_2[k]
             love.graphics.circle('line', x, y, 10)
-            love.graphics.print(k, x, y)
+            love.graphics.print(k, x, y + offset * 30)
             if n1 then
-                love.graphics.print(n1, x, y + 10)
+                love.graphics.print(n1, x, y + 10 + offset * 30)
             end
             if n2 then
-                love.graphics.print(n2, x, y)
+                love.graphics.print(n2, x, y + offset * 30)
             end
+
+            offset = offset + 1
         end)
     end
 }
@@ -1229,8 +1236,8 @@ module {
         -- Vector methods
         v1 = {'V1', 'port', 'vector', 'in'},
         v2 = {'V2', 'port', 'vector', 'in'},
-        v1_attenuvert = {'av', 'knob'},
-        v2_attenuvert = {'av', 'knob'},
+        v1_attenuvert = {'av', 'knob', default=1},
+        v2_attenuvert = {'av', 'knob', default=1},
         plus = {'+', 'port', 'vector', 'out'},
         theta = {'Theta', 'port', 'number', 'out'},
         delta = {'Delta', 'port', 'number', 'out'},
@@ -1591,8 +1598,10 @@ module {
     update = function(self, dt)
         self.one.default = 1
         for key in Utils.all_keys(self.ids, {default=true}) do
-            if not rawget(self.value_out, key) then
-                self.value_out[key] = self.init
+            if key ~= "default" then
+                if not rawget(self.value_out, key) then
+                    self.value_out[key] = self.init
+                end
             end
             if not self.value_out.default then
                 self.value_out.default = self.init
@@ -1788,5 +1797,98 @@ module {
         self.n2_out.default = self.n2.default
         self.c1_out.default = self.c1.default
         self.c2_out.default = self.c2.default
+    end
+}
+
+local TRAIL_MAX_POINTS = 30
+
+module {
+    name = "trail",
+    parts = {
+        positions = {'V', 'port', 'vector', 'in'}, 
+        n_points = {'n', 'port', 'number', 'in'},
+        n_points_knob = {'*', 'knob'},
+        distance = {'d', 'port', 'number', 'in'},
+        distance_knob = {'*', 'knob'},
+        theta = {'r', 'port', 'number', 'in'},
+        theta_knob = {'*', 'knob'},
+        delta_distance = {'dd', 'port', 'number', 'in'},
+        delta_distance_knob = {'*', 'knob'},
+        delta_theta = {'dr', 'port', 'number', 'in'},
+        delta_theta_knob = {'*', 'knob'},
+        smooth = {'Smooth', 'button'},
+        positions_out = {'V', 'port', 'vector', 'out'},
+        next_out = {'Next', 'port', 'vector', 'out'},
+        n_out = {'n', 'port', 'number', 'out'}
+    },
+    layout = {
+        {'positions', 'smooth', '', '', ''},
+        {'n_points', 'distance', 'theta', 'delta_distance', 'delta_theta',},
+        {'n_points_knob', 'distance_knob', 'theta_knob', 'delta_distance_knob', 'delta_theta_knob'},
+        {'positions_out', 'next_out', 'n_out'}
+    },
+    update = function(self)
+        local function trim_trail(key, n)
+            for i=n,TRAIL_MAX_POINTS do
+                local point_key = 'trail_' .. key .. '_' .. i
+                self.positions_out[point_key] = nil
+                self.n_out[point_key] = nil
+            end
+        end
+
+        local function visit_trails(key)
+            local n_float = supervert(key, self.n_points, self.n_points_knob) * TRAIL_MAX_POINTS
+            local n = math.floor(n_float)
+            local position = self.positions[key] or {x=0, y=0}
+            local distance = supervert(key, self.distance, self.distance_knob)
+            distance = math.pow(distance, 3) * .25
+            local theta = supervert(key, self.theta, self.theta_knob) * math.pi * 2
+            local delta_distance = math.pow(np1(supervert(key, self.delta_distance, self.delta_distance_knob)), 3) * .25
+            local delta_theta = np1(supervert(key, self.delta_theta, self.delta_theta_knob)) * .5
+            for i=1,n do
+                local point_key = 'trail_' .. key .. '_' .. i
+                local out_position = self.positions_out[point_key] or {}
+                local this_distance = i * distance
+                if i == (n - 1) and self.smooth then
+                    this_distance = distance * (n_float - n)
+                end
+                out_position.x = position.x + math.cos(theta) * this_distance
+                out_position.y = position.y + math.sin(theta) * this_distance
+                self.positions_out[point_key] = out_position
+                self.n_out[point_key] = i / n
+
+                distance = distance + delta_distance
+                theta = theta + delta_theta
+            end
+
+            trim_trail(key, n)
+
+            for i=1,n do
+                local point_key = 'trail_' .. key .. '_' .. i
+                local next_point_key = 'trail_' .. key .. '_' .. i + 1
+                self.next_out[point_key] = self.positions_out[next_point_key] or self.positions_out[point_key]
+            end
+        end
+
+        self._position_cache = self._position_cache or {}
+
+        local any = false
+        for key, position in pairs(self.positions) do
+            any = true
+            self._position_cache[key] = true
+            visit_trails(key)
+        end
+
+        for key, _ in pairs(self._position_cache) do
+            if not rawget(self.positions, key) then
+                trim_trail(key, 0)
+            end
+        end
+
+        if not any then
+            visit_trails("default")
+        else
+            trim_trail("default", 0)
+        end
     end
 }

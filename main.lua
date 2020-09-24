@@ -611,6 +611,13 @@ local function clear_edges()
     vim.show_message("Patches cleared.")
 end
 
+local function clear_modules()
+    MODULES = {}
+    EDGES = {}
+    update_ports()
+    vim.show_message("Modules cleared.")
+end
+
 local function setup_vim_binds()
     vim.init()
     vim.bind("normal", "a", function()
@@ -683,6 +690,7 @@ local function setup_vim_binds()
     end
 
     vim.bind("normal", "cp", clear_edges)
+    vim.bind("normal", "cm", clear_modules)
 
     vim.bind("normal", "l0", load_slot(0))
     vim.bind("normal", "l1", load_slot(1))
