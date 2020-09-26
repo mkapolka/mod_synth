@@ -17,18 +17,25 @@ local function module(template)
     module_types[template.name] = template
 end
 
-local function attenuvert(input, knob)
-    if knob < .5 then
-        return (1 - input) * -np1(knob)
+local function attenuvert(input, knob, to_np1)
+    if to_np1 then
+        return np1(input) * np1(knob)
+    else
+        if knob < .5 then
+            return (1 - input) * -np1(knob)
+        end
+        return input * np1(knob)
     end
-    return input * np1(knob)
 end
 
 -- Experimental port / knob logic: If no input, knob = value
 -- With input, knob = attenuverter
-local function supervert(key, port, knob)
+local function supervert(key, port, knob, to_np1)
     if port[key] ~= undefined then
-        return attenuvert(port[key], knob)
+        return attenuvert(port[key], knob, to_np1)
+    end
+    if to_np1 then
+        return np1(knob)
     end
     return knob
 end
@@ -202,7 +209,8 @@ module {
         {'fill_mode', 'radius_knob', 'draw_order'}
     },
     draw = function(self)
-        for k, v in pairs(self.points) do
+        local function f(k)
+            local v = self.points[k] or {x=0, y=0}
             local c = self.color[k] or {1, 1, 1, 1}
             local r = 1
             local radius = supervert(k, self.radii, self.radius_knob) * 400
@@ -214,6 +222,14 @@ module {
             end
             love.graphics.circle(mode, nx, ny, radius)
             love.graphics.setColor(1, 1, 1, 1)
+        end
+        local default = true
+        for k, v in pairs(self.points) do
+            f(k)
+            default = false
+        end
+        if default then
+            f("default")
         end
     end
 }
@@ -300,7 +316,7 @@ module {
         local brknob = self.b_radii_knob
 
         for k, _ in pairs(touch) do
-            if not a[k] and not b[k] then
+            if not rawget(a, k) and not rawget(b, k) then
                 touch[k] = nil
             else
                 touch[k] = 0
@@ -401,10 +417,10 @@ module {
                 for y = 0,ry do
                     local fx = np1(x / rx) * width
                     local fy = np1(y / ry) * height
-                    local key = 'grid_' .. self.id .. '_' .. (x * (rx + 1) + y)
+                    local key = 'grid_' .. self.id .. '_' .. (x * (ry + 1) + y)
                     local p = self.points[key] or {}
                     p.x = fx + np1(love.math.noise(fx, fy)) * wobble_x
-                    p.y = fy + np1(love.math.noise(fx, fy)) * wobble_y
+                    p.y = fy + np1(love.math.noise(fx + 1000, fy + 1000)) * wobble_y
                     self.points[key] = p
                     seen[key] = true
                 end
@@ -722,7 +738,7 @@ module {
     },
     update = function(self, dt)
         local rough = self.roughness * 10
-        self._drift = self._drift or 0
+        self._drift = self._drift or math.random() * 1000
         self._drift = self._drift + dt * math.pow(self.drift, 3) * 20
 
         for key in pairs(self.output) do
@@ -732,7 +748,8 @@ module {
             end
         end
 
-        for key, value in pairs(self.vectors) do
+        for key in Utils.all_keys(self.vectors, {default=true}) do
+            local value = self.vectors[key] or {x=0, y=0}
             local nx, ny = value.x * rough, value.y * rough
             self.output[key] = love.math.noise(nx, ny, self._drift)
             local dx = love.math.noise(nx, ny, self._drift)
@@ -845,7 +862,7 @@ module {
 
             local shape_f = shapes[1+math.floor(shape * (#shapes-1))]
 
-            local frequency = supervert(key, freq, freq_knob)
+            local frequency = math.pow(supervert(key, freq, freq_knob), 2) * 10
             local amplitude = supervert(key, amp, amp_knob)
             local shape_output = shape_f((offset + sync) % 1)
             out[key] = shape_output * amplitude
@@ -1021,7 +1038,8 @@ module {
                 local source = sources[love.math.random(1, #sources)]
                 local pitchv = self.pitch[key] or .5
                 local volumev = self.volume[key] or .5
-                local pitch = (pitchv + .5) * (self.pitch_k + .5)
+                local pitch = .5 + supervert(key, self.pitch, self.pitch_k)
+                --local pitch = (pitchv + .5) * (self.pitch_k + .5)
                 local volume = (volumev + .5) * (self.volume_k + .5)
                 source:setPitch(pitch)
                 source:setVolume(volume)
@@ -1098,12 +1116,17 @@ module {
     end,
     draw = function(self)
         local keys = {}
+        local default = true
         for key, position in pairs(self.positions) do
+            default = false
             table.insert(keys, {key, position})
         end
         table.sort(keys, function(a, b)
             return a[2].y < b[2].y
         end)
+        if default then
+            table.insert(keys, {"default", self.positions.default or {x=0, y=0}})
+        end
         for i, p in ipairs(keys) do
             local key = p[1]
             local position = p[2]
@@ -1159,8 +1182,6 @@ module {
             if n2 then
                 love.graphics.print(n2, x, y + offset * 30)
             end
-
-            offset = offset + 1
         end)
     end
 }
@@ -1258,8 +1279,10 @@ module {
         for key in Utils.all_keys(self.x, self.y, bonus, {default=true}) do
             xy_cells[key] = true
             local xy = rawget(self.xy, key) or {}
-            local x = np1(self.x[key] or 0) * np1(self.x_attenuvert)
-            local y = np1(self.y[key] or 0) * np1(self.y_attenuvert)
+            --local x = np1(self.x[key] or 0) * np1(self.x_attenuvert)
+            --local y = np1(self.y[key] or 0) * np1(self.y_attenuvert)
+            local x = supervert(key, self.x, self.x_attenuvert, true)
+            local y = supervert(key, self.y, self.y_attenuvert, true)
             xy.x = x
             xy.y = y
             self.xy[key] = xy
@@ -1511,6 +1534,7 @@ module {
                 for _, child in pairs(children) do
                     bullet_remove(self, child)
                 end
+                self._pools[key] = nil
             end
         end
 
@@ -1524,7 +1548,6 @@ module {
             self._r8[key] = _r8 - dt * math.pow(self.rate, 2) * 20
         end
 
-        local i = 0
         for key, vector in pairs(self.output) do
             local life = self.out_life[key] or 1.0
             local dir = self.out_dir[key] or 1
@@ -1842,21 +1865,25 @@ module {
             local position = self.positions[key] or {x=0, y=0}
             local distance = supervert(key, self.distance, self.distance_knob)
             distance = math.pow(distance, 3) * .25
-            local theta = supervert(key, self.theta, self.theta_knob) * math.pi * 2
+            local theta = (((self.theta[key] or 0) + self.theta_knob) % 1) * math.pi * 2
             local delta_distance = math.pow(np1(supervert(key, self.delta_distance, self.delta_distance_knob)), 3) * .25
-            local delta_theta = np1(supervert(key, self.delta_theta, self.delta_theta_knob)) * .5
+            local delta_theta = supervert(key, self.delta_theta, self.delta_theta_knob, true) * .5
+
+            local previous_position = position
+
             for i=1,n do
                 local point_key = 'trail_' .. key .. '_' .. i
-                local out_position = self.positions_out[point_key] or {}
-                local this_distance = i * distance
+                local out_position = rawget(self.positions_out, point_key) or {}
+                local this_distance = distance
                 if i == (n - 1) and self.smooth then
                     this_distance = distance * (n_float - n)
                 end
-                out_position.x = position.x + math.cos(theta) * this_distance
-                out_position.y = position.y + math.sin(theta) * this_distance
+                out_position.x = previous_position.x + math.cos(theta) * this_distance
+                out_position.y = previous_position.y + math.sin(theta) * this_distance
                 self.positions_out[point_key] = out_position
                 self.n_out[point_key] = i / n
 
+                previous_position = out_position
                 distance = distance + delta_distance
                 theta = theta + delta_theta
             end
@@ -1889,6 +1916,49 @@ module {
             visit_trails("default")
         else
             trim_trail("default", 0)
+        end
+    end
+}
+
+module {
+    name = 'lines',
+    parts = {
+        starts = {'V1', 'port', 'vector', 'in'},
+        ends = {'V2', 'port', 'vector', 'in'},
+        thickness = {'Width', 'port', 'number', 'in'},
+        thickness_knob = {'*', 'knob', default=.6},
+        color = {'C', 'port', 'color', 'in'},
+    },
+    layout ={
+        {'starts', 'ends', 'thickness'},
+        {'color', '', 'thickness_knob'}
+    },
+    draw = function(self)
+        local function f(key)
+            local startPoint = self.starts[key] or {x=0, y=0}
+            local endPoint = self.ends[key] or {x=0, y=0}
+            local thickness = math.pow(supervert(key, self.thickness, self.thickness_knob), 2) * 50
+            local sx, sy = Utils.denorm_point(startPoint.x, startPoint.y)
+            local ex, ey = Utils.denorm_point(endPoint.x, endPoint.y)
+            local color = self.color[key] or {1, 1, 1, 1}
+
+            love.graphics.push()
+                love.graphics.setColor(color[1], color[2], color[3], color[4])
+                love.graphics.setLineWidth(thickness)
+                love.graphics.line(sx, sy, ex, ey)
+                love.graphics.setLineWidth(1)
+            love.graphics.pop()
+        end
+
+        local default = true
+        for key in Utils.all_keys(self.starts) do
+            if key ~= "default" then
+                f(key)
+                default = false
+            end
+        end
+        if default then
+            f("default")
         end
     end
 }
