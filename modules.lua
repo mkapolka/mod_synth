@@ -472,7 +472,8 @@ module {
             end
         end
 
-        for k, p in pairs(self.positions) do
+        for k in Utils.all_keys(self.positions, {default=true}) do
+            local p = self.positions[k] or {x=0, y=0}
             if self.respawn[k] and self.respawn[k] > .8 then
                 self.offsets[k] = {x=0, y=0}
             end
@@ -901,6 +902,7 @@ module {
     },
     update = function(self)
         Utils.cell_map(self.input, function(key, value)
+            value = value or 0
             self.output[key] = self.min + value * (self.max - self.min)
         end)
         Utils.cell_trim(self.input, self.output)
@@ -1063,8 +1065,10 @@ for i, line in pairs(parseBank("animations/bank_1")) do
     local quads = {}
     local image = love.graphics.newImage(path)
     local iw, ih = image:getDimensions()
-    for i=0,image:getWidth()/width-1 do
-        table.insert(quads, love.graphics.newQuad(i*width,0,width,height,iw,ih))
+    for j=0,image:getHeight()/height-1 do
+        for i=0,image:getWidth()/width-1 do
+            table.insert(quads, love.graphics.newQuad(i*width,j*height,width,height,iw,ih))
+        end
     end
     table.insert(animations, {
         image=image,
@@ -1106,12 +1110,13 @@ module {
     end,
     update = function(self, dt)
         Utils.cell_map(self.positions, function(key, position)
+            position = position or {x=0, y=0}
             local f = self._frames[key] or 0
             local speed = (self.speed_in[key] or 1) * math.pow((self.speed * 2), 3)
             f = f + dt * speed
             f = f % 1
             self._frames[key] = f
-        end)
+        end, true)
         Utils.cell_trim(self.positions, self._frames)
     end,
     draw = function(self)
@@ -1170,6 +1175,7 @@ module {
     draw = function(self)
         local offset = 0
         Utils.cell_map(self.positions_1, function(k, p)
+            p = p or {x=0, y=0}
             local x, y = Utils.denorm_point(p.x, p.y)
             --local p2 = self.positions_2[k]
             local n1 = self.numbers_1[k]
@@ -1202,11 +1208,10 @@ module {
         {'output_1'},
     },
     update = function(self, dt)
-        local at = np1(self.attenuvert_1)
-        local target_1 = self.target_1
-        Utils.cell_map(self.offset_1, function(key, offset)
-            --self.output_1[key] = (target_1 * (1 - math.abs(at))) + (offset * at)
-            self.output_1[key] = self.target_1 + supervert(key, self.offset_1, self.attenuvert_1)
+        Utils.cell_map(self.offset_1, function(key)
+            local sv = supervert(key, self.offset_1, self.attenuvert_1)
+            local target_width = 1 - math.abs(np1(self.attenuvert_1))
+            self.output_1[key] = (self.target_1 * target_width) + sv
         end)
     end
 }

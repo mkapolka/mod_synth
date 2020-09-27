@@ -76,9 +76,7 @@ function Utils.cell_map(pk_cell, f, onDefault)
         f(key, value)
     end
     if onDefault == undefined or onDefault then
-        if pk_cell.default then
-            f('default', pk_cell.default)
-        end
+        f('default', pk_cell.default)
     end
 end
 
