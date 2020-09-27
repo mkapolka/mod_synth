@@ -1083,7 +1083,9 @@ module {
     parts = {
         positions = {'V', 'port', 'vector', 'in'},
         rotations = {'R', 'port', 'number', 'in'},
+        rotation_knob = {'+', 'knob', default=0},
         scales = {'S', 'port', 'number', 'in'},
+        scale_knob = {'*', 'knob'},
         colors = {'C', 'port', 'color', 'in'},
         frame = {'F', 'port', 'number', 'in'},
         frame_out = {'F', 'port', 'number', 'out'},
@@ -1091,14 +1093,16 @@ module {
         speed = {'Spd', 'knob'},
         speed_in = {'Spd', 'port', 'number', 'in'},
         draw_order = {'DO', 'knob'},
+        order = {'Order', 'port', 'number', 'in'},
         btn_1 = {'Sprite', 'button', default=false},
         btn_2 = {'', 'button', default=false},
         btn_3 = {'', 'button', default=false},
         btn_4 = {'', 'button', default=false},
     },
     layout = {
-        {'draw_order', '', '', 'frame_out'},
+        {'draw_order', 'order', '', 'frame_out'},
         {'positions', 'rotations', 'scales', 'colors'},
+        {'', 'rotation_knob', 'scale_knob', ''},
         {'frame', 'speed', 'speed_in', 'ping_pong'},
         {'btn_1', 'btn_2', 'btn_3', 'btn_4'},
     },
@@ -1124,20 +1128,23 @@ module {
         local default = true
         for key, position in pairs(self.positions) do
             default = false
-            table.insert(keys, {key, position})
+            local depth = self.order[key] or position.y
+            table.insert(keys, {key, depth})
         end
         table.sort(keys, function(a, b)
-            return a[2].y < b[2].y
+            return a[2] < b[2]
         end)
         if default then
             table.insert(keys, {"default", self.positions.default or {x=0, y=0}})
         end
         for i, p in ipairs(keys) do
             local key = p[1]
-            local position = p[2]
-            local r = self.rotations[key] or 0
+            local position = self.positions[key] or {x=0, y=0}
+            --local r = self.rotations[key] or 0
+            local r = (self.rotations[key] or 0) + self.rotation_knob
             local c = self.colors[key] or {1, 1, 1, 1}
             local s = self.scales[key] or .5
+            local s = supervert(key, self.scales, self.scale_knob)
             s = math.pow(s, 2) * 4
             local frame = self.frame[key] or self._frames[key] or 0
             local which = buttonToNumber(self.btn_1, self.btn_2, self.btn_3, self.btn_4)
