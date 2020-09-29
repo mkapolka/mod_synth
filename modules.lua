@@ -1798,7 +1798,7 @@ module {
         c1_out = {'C1', 'port', 'color', 'out'},
         c2_out = {'C2', 'port', 'color', 'out'},
         recording = {'Rec', 'button'},
-        reset = {'Reset', 'button'}
+        reset = {'Reset', 'button', callback="reset"}
     },
     layout = {
         {'v1', 'v2', 'recording', 'v1_out', 'v2_out'},
@@ -1811,6 +1811,20 @@ module {
             values = {},
             iota = 1
         }
+    end,
+    reset = function(self)
+        self.data = {
+            values = {},
+            iota = 0
+        }
+        self.iota = 0
+
+        for _, key in pairs(STAMPER_SLOTS) do
+            for key2 in pairs(self[key]) do
+                self[key][key2] = nil
+            end
+            self[key].default = nil
+        end
     end,
     restart = function(self)
         self.iota = self.data.iota
@@ -1830,21 +1844,6 @@ module {
 
         local mx, my = Mouse.getNormPoint()
         local v1 = self.v1[self.iota] or {x=mx, y=my}
-
-        if self.reset then
-            self.data = {
-                values = {},
-                iota = 0
-            }
-            self.iota = 0
-
-            for _, key in pairs(STAMPER_SLOTS) do
-                for key2 in pairs(self[key]) do
-                    self[key][key2] = nil
-                end
-                self[key].default = nil
-            end
-        end
 
         if self.recording and Mouse.isInViewport() and love.mouse.isDown(1) then 
             if not self.stamping and self.recording then

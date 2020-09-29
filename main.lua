@@ -105,7 +105,13 @@ end
 
 local function module_part(part, x, y)
     local name, part_type = part[1], part[2]
-    local output = {x=x, y=y, name=name, part_type=part_type}
+    local output = {
+        x=x,
+        y=y,
+        name=name,
+        part_type=part_type
+    }
+
     if part_type == 'port' then
         output.type = part[3]
         output.output = part[4] == 'out'
@@ -119,6 +125,7 @@ local function module_part(part, x, y)
 
     if part_type == 'button' then
         output.value = part.default or false
+        output.callback = part.callback
     end
 
     return output
@@ -393,7 +400,8 @@ local function draw_button(module, key)
     if button.value then
         mode = 'fill'
     end
-    love.graphics.circle(mode, bx, by, BUTTON_RADIUS)
+    local radius = button.callback and BUTTON_RADIUS * .8 or BUTTON_RADIUS
+    love.graphics.circle(mode, bx, by, radius)
 end
 
 local function draw_connections()
@@ -927,7 +935,13 @@ function love.mousepressed(x, y, which)
                 end
             elseif clicking_type == 'button' then
                 local button = get_part(clicking)
-                button.value = not button.value
+                if button.callback then
+                    local module = MODULES[clicking[1]]
+                    print("Visiting", module, button.callback)
+                    visit_module(module, button.callback)
+                else
+                    button.value = not button.value
+                end
             elseif clicking_type == 'knob' then
                 local knob = get_part(clicking)
                 HOLDING_KNOB = knob
