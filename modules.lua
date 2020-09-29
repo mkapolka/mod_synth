@@ -1,5 +1,6 @@
 local Utils = require "utils"
 local socket = require "socket"
+local Mouse = require "mouse"
 
 -- n is a number between -1 and 1,
 -- output is between 0 and 1
@@ -1775,6 +1776,8 @@ local function copy_table(t)
     return output
 end
 
+local STAMPER_SLOTS = {"v1_out", "v2_out", "n1_out", "n2_out", "n3_out", "n4_out", "c1_out", "c2_out"}
+
 module {
     name = 'stamper',
     parts = {
@@ -1782,63 +1785,115 @@ module {
         v2 = {'V2', 'port', 'vector', 'in'},
         n1 = {'N1', 'port', 'number', 'in'},
         n2 = {'N2', 'port', 'number', 'in'},
+        n3 = {'N3', 'port', 'number', 'in'},
+        n4 = {'N4', 'port', 'number', 'in'},
         c1 = {'C1', 'port', 'color', 'in'},
         c2 = {'C2', 'port', 'color', 'in'},
         v1_out = {'V1', 'port', 'vector', 'out'},
         v2_out = {'V2', 'port', 'vector', 'out'},
         n1_out = {'N1', 'port', 'number', 'out'},
         n2_out = {'N2', 'port', 'number', 'out'},
+        n3_out = {'N3', 'port', 'number', 'out'},
+        n4_out = {'N4', 'port', 'number', 'out'},
         c1_out = {'C1', 'port', 'color', 'out'},
         c2_out = {'C2', 'port', 'color', 'out'},
         recording = {'Rec', 'button'},
-        stamp = {'Stamp', 'port', 'number', 'in'},
-        reset = {'Reset', 'port', 'number', 'in'}
+        reset = {'Reset', 'button'}
     },
     layout = {
         {'v1', 'v2', 'recording', 'v1_out', 'v2_out'},
-        {'n1', 'n2', 'stamp', 'n1_out', 'n2_out'},
+        {'n1', 'n2', '', 'n1_out', 'n2_out'},
+        {'n3', 'n4', '', 'n3_out', 'n4_out'},
         {'c1', 'c2', 'reset', 'c1_out', 'c2_out'},
     },
+    start = function(self)
+        self.data = {
+            values = {},
+            iota = 1
+        }
+    end,
+    restart = function(self)
+        self.iota = self.data.iota
+
+        if self.data then
+            for _, key in pairs(STAMPER_SLOTS) do
+                for key2, value in pairs(self.data.values[key] or {}) do
+                    self[key][key2] = value
+                end
+            end
+        end
+    end,
     update = function(self, dt)
         self.values = self.values or {}
         self.stamping = self.stamping or false
         self.iota = self.iota or 1
 
-        if (self.stamp.default or 0) > .5 then
+        local mx, my = Mouse.getNormPoint()
+        local v1 = self.v1[self.iota] or {x=mx, y=my}
+
+        if self.reset then
+            self.data = {
+                values = {},
+                iota = 0
+            }
+            self.iota = 0
+
+            for _, key in pairs(STAMPER_SLOTS) do
+                for key2 in pairs(self[key]) do
+                    self[key][key2] = nil
+                end
+                self[key].default = nil
+            end
+        end
+
+        if self.recording and Mouse.isInViewport() and love.mouse.isDown(1) then 
             if not self.stamping and self.recording then
                 self.stamping = true
                 print("Stamping!")
-                self.v1_out[self.iota] = copy_table(self.v1.default) or {x=0, y=0}
+                self.v1_out[self.iota] = copy_table(v1) or {x=0, y=0}
                 self.v2_out[self.iota] = copy_table(self.v2.default) or {x=0, y=0}
                 self.n1_out[self.iota] = self.n1.default
                 self.n2_out[self.iota] = self.n2.default
+                self.n3_out[self.iota] = self.n3.default
+                self.n4_out[self.iota] = self.n4.default
                 self.c1_out[self.iota] = copy_table(self.c1.default) or {1, 1, 1, 1}
                 self.c2_out[self.iota] = copy_table(self.c2.default) or {1, 1, 1, 1}
+
+                for _, key in pairs(STAMPER_SLOTS) do
+                    self.data.values[key] = self.data.values[key] or {}
+                    self.data.values[key][self.iota] = self[key][self.iota]
+                end
                 self.iota = self.iota + 1
             end
         else
             self.stamping = false
         end
 
-        self.v1_out.next = self.v1.default
+        self.v1_out.next = v1
         self.v2_out.next = self.v2.default
         self.n1_out.next = self.n1.default
         self.n2_out.next = self.n2.default
+        self.n3_out.next = self.n3.default
+        self.n4_out.next = self.n4.default
         self.c1_out.next = self.c1.default
         self.c2_out.next = self.c2.default
 
-        self.v1_out.default = self.v1.default
+        self.v1_out.default = v1
         self.v2_out.default = self.v2.default
         self.n1_out.default = self.n1.default
         self.n2_out.default = self.n2.default
+        self.n3_out.default = self.n3.default
+        self.n4_out.default = self.n4.default
         self.c1_out.default = self.c1.default
         self.c2_out.default = self.c2.default
     end,
     serialize = function(self)
         local values = {}
-        for _, key in pairs({"v1_out", "v2_out", "n1_out", "n2_out", "c1_out", "c2_out"}) do
-            values[key] = self[key]
-            values[key].default = self[key].default
+        for _, key in pairs(STAMPER_SLOTS) do
+            if key ~= "next" then
+                values[key] = self[key]
+                values[key].default = self[key].default
+            end
         end
         return {
             values = values,
@@ -1847,9 +1902,9 @@ module {
     end,
     deserialize = function(self, data)
         self.iota = data.iota
-        for _, key in pairs({"v1_out", "v2_out", "n1_out", "n2_out", "c1_out", "c2_out"}) do
-            for key2 in pairs(data.values[key]) do
-                print(key, self, self[key])
+        self.data = data
+        for _, key in pairs(STAMPER_SLOTS) do
+            for key2 in pairs(data.values[key] or {}) do
                 self[key][key2] = data.values[key][key2]
             end
         end

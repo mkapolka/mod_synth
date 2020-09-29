@@ -268,14 +268,14 @@ local function visit_module(module, method, ...)
 end
 
 local function reset_module(module)
-    module.target = {}
+    --module.target = {}
 
     for key, v in pairs(module.parts) do
         if v.part_type == 'port' then
-            for k, _ in pairs(v.cell) do
-                v.cell[k] = nil
+            for k, _ in pairs(v.own_cell) do
+                v.own_cell[k] = nil
             end
-            v.cell.default = nil
+            v.own_cell.default = nil
         end
     end
 
