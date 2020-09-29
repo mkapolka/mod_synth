@@ -1790,11 +1790,12 @@ module {
         n2_out = {'N2', 'port', 'number', 'out'},
         c1_out = {'C1', 'port', 'color', 'out'},
         c2_out = {'C2', 'port', 'color', 'out'},
+        recording = {'Rec', 'button'},
         stamp = {'Stamp', 'port', 'number', 'in'},
         reset = {'Reset', 'port', 'number', 'in'}
     },
     layout = {
-        {'v1', 'v2', '', 'v1_out', 'v2_out'},
+        {'v1', 'v2', 'recording', 'v1_out', 'v2_out'},
         {'n1', 'n2', 'stamp', 'n1_out', 'n2_out'},
         {'c1', 'c2', 'reset', 'c1_out', 'c2_out'},
     },
@@ -1804,7 +1805,7 @@ module {
         self.iota = self.iota or 1
 
         if (self.stamp.default or 0) > .5 then
-            if not self.stamping then
+            if not self.stamping and self.recording then
                 self.stamping = true
                 print("Stamping!")
                 self.v1_out[self.iota] = copy_table(self.v1.default) or {x=0, y=0}
@@ -1832,6 +1833,26 @@ module {
         self.n2_out.default = self.n2.default
         self.c1_out.default = self.c1.default
         self.c2_out.default = self.c2.default
+    end,
+    serialize = function(self)
+        local values = {}
+        for _, key in pairs({"v1_out", "v2_out", "n1_out", "n2_out", "c1_out", "c2_out"}) do
+            values[key] = self[key]
+            values[key].default = self[key].default
+        end
+        return {
+            values = values,
+            iota = self.iota
+        }
+    end,
+    deserialize = function(self, data)
+        self.iota = data.iota
+        for _, key in pairs({"v1_out", "v2_out", "n1_out", "n2_out", "c1_out", "c2_out"}) do
+            for key2 in pairs(data.values[key]) do
+                print(key, self, self[key])
+                self[key][key2] = data.values[key][key2]
+            end
+        end
     end
 }
 

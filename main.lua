@@ -234,24 +234,28 @@ local function rack(name, mx, my, id)
     return template
 end
 
-local function visit_module(module, method, ...)
-    if module[method] then
-        local target = module.target
-        target.id = module.id
-        for key, v in pairs(module.parts) do
-            if v.part_type == 'port' then
-                target[key] = v.cell
-            end
-
-            if v.part_type == 'knob' then
-                target[key] = v.value
-            end
-
-            if v.part_type == 'button' then
-                target[key] = v.value
-            end
+local function update_target(module)
+    local target = module.target
+    target.id = module.id
+    for key, v in pairs(module.parts) do
+        if v.part_type == 'port' then
+            target[key] = v.cell
         end
 
+        if v.part_type == 'knob' then
+            target[key] = v.value
+        end
+
+        if v.part_type == 'button' then
+            target[key] = v.value
+        end
+    end
+end
+
+local function visit_module(module, method, ...)
+    if module[method] then
+        update_target(module)
+        local target = module.target
         ok, err = pcall(module[method], target, ...)
         if not ok then
             print("ERROR CALLING " .. method .. ": " .. err)
@@ -549,6 +553,15 @@ local function write_save(slot)
             end
         end
 
+        if module.serialize then
+            ok, err = pcall(module.serialize, module.target)
+            if not ok then
+                print("ERROR SERIALIZING " .. module.module_type .. ": " .. err)
+            else
+                out_module.data = err
+            end
+        end
+
         data.modules[key] = out_module
     end
 
@@ -600,7 +613,16 @@ local function load_save(which)
         update_ports()
 
         for key, module in pairs(MODULES) do
+            update_target(module)
             visit_module(module, 'start')
+
+            local payload = data.modules[key].data
+            if module.deserialize and payload then
+                ok, err = pcall(module.deserialize, module.target, payload)
+                if not ok then
+                    print("ERROR DESERIALIZING " .. module.module_type .. ": " .. err)
+                end
+            end
         end
     end
 end
