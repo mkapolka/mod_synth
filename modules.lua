@@ -41,6 +41,13 @@ local function supervert(key, port, knob, to_np1)
     return knob
 end
 
+local function toa(key, port, target, attenuvert)
+    local sv = supervert(key, port, attenuvert)
+    local target_width = 1 - math.abs(np1(attenuvert))
+    return (target * target_width) + sv
+end
+
+
 module {
     name = 'wrap',
     parts = {
@@ -684,10 +691,10 @@ module {
     },
     update = function(self)
         local function f(key)
-            local h = self.hue_target_knob + supervert(key, self.hue, self.hue_knob)
-            local s = self.saturation_target_knob + supervert(key, self.saturation, self.saturation_knob)
-            local v = self.value_target_knob + supervert(key, self.value, self.value_knob)
-            local a = self.alpha_target_knob + supervert(key, self.alpha, self.alpha_knob)
+            local h = (self.hue_target_knob + supervert(key, self.hue, self.hue_knob)) % 1
+            local s = toa(key, self.saturation, self.saturation_target_knob, self.saturation_knob)
+            local v = toa(key, self.value, self.value_target_knob, self.value_knob)
+            local a = toa(key, self.alpha, self.alpha_target_knob, self.alpha_knob)
             local r, g, b = Utils.hsv(h, s, v)
             self.output[key] = {r, g, b, a}
         end
@@ -1228,29 +1235,21 @@ module {
     name = 'knobs',
     parts = {
         knob_1 = {'', 'knob'},
-        range_1 = {'0-1', 'button', default=true},
         output_1 = {'1', 'port', 'number', 'out'},
         knob_2 = {'', 'knob'},
-        range_2 = {'0-1', 'button', default=true},
         output_2 = {'1', 'port', 'number', 'out'},
         knob_3 = {'', 'knob'},
-        range_3 = {'0-1', 'button', default=true},
         output_3 = {'1', 'port', 'number', 'out'},
         knob_4 = {'', 'knob'},
-        range_4 = {'0-1', 'button', default=true},
         output_4 = {'1', 'port', 'number', 'out'},
     },
     layout = {
         {'knob_1', 'knob_2', 'knob_3', 'knob_4'},
-        {'range_1', 'range_2', 'range_3', 'range_4'},
         {'output_1', 'output_2', 'output_3', 'output_4'},
     },
     update = function(self, dt)
         for i=1,4 do
             local v = self['knob_' .. i]
-            if not self['range_' .. i] then
-                v = v * 2 - 1
-            end
             self['output_' .. i].default = v
         end
     end
@@ -1845,9 +1844,9 @@ module {
         local mx, my = Mouse.getNormPoint()
         local v1 = self.v1[self.iota] or {x=mx, y=my}
 
-        if self.recording and Mouse.isInViewport() and love.mouse.isDown(1) then 
-            if not self.stamping and self.recording then
-                self.stamping = true
+        if self.recording and Mouse.isInViewport() then 
+            if love.mouse.isDown(1) and not self.stamping then
+                self.stamping = 1
                 print("Stamping!")
                 self.v1_out[self.iota] = copy_table(v1) or {x=0, y=0}
                 self.v2_out[self.iota] = copy_table(self.v2.default) or {x=0, y=0}
@@ -1864,18 +1863,56 @@ module {
                 end
                 self.iota = self.iota + 1
             end
-        else
+
+            if love.mouse.isDown(2) and not self.stamping then
+                -- Find the key on v1_out that's closest to the mouse
+                local min_d = nil
+                local min_key = nil
+                for key, point in pairs(self.v1_out) do
+                    if key ~= "next" then
+                        local dx = point.x - mx
+                        local dy = point.y - my
+                        local d = math.sqrt(dx * dx + dy * dy)
+                        if not min_d or d < min_d then
+                            min_d = d
+                            min_key = key
+                        end
+                    end
+                end
+                print("Removing!", min_key)
+
+                if min_key then
+                    for _, key in pairs(STAMPER_SLOTS) do
+                        self[key][min_key] = nil
+                    end
+                end
+                self.stamping = 2
+            end
+        end
+
+        if self.stamping and not love.mouse.isDown(self.stamping) then
             self.stamping = false
         end
 
-        self.v1_out.next = v1
-        self.v2_out.next = self.v2.default
-        self.n1_out.next = self.n1.default
-        self.n2_out.next = self.n2.default
-        self.n3_out.next = self.n3.default
-        self.n4_out.next = self.n4.default
-        self.c1_out.next = self.c1.default
-        self.c2_out.next = self.c2.default
+        if self.recording then
+            self.v1_out.next = v1
+            self.v2_out.next = self.v2.default
+            self.n1_out.next = self.n1.default
+            self.n2_out.next = self.n2.default
+            self.n3_out.next = self.n3.default
+            self.n4_out.next = self.n4.default
+            self.c1_out.next = self.c1.default
+            self.c2_out.next = self.c2.default
+        else
+            self.v1_out.next = nil
+            self.v2_out.next = nil
+            self.n1_out.next = nil
+            self.n2_out.next = nil
+            self.n3_out.next = nil
+            self.n4_out.next = nil
+            self.c1_out.next = nil
+            self.c2_out.next = nil
+        end
 
         self.v1_out.default = v1
         self.v2_out.default = self.v2.default

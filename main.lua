@@ -937,7 +937,6 @@ function love.mousepressed(x, y, which)
                 local button = get_part(clicking)
                 if button.callback then
                     local module = MODULES[clicking[1]]
-                    print("Visiting", module, button.callback)
                     visit_module(module, button.callback)
                 else
                     button.value = not button.value
