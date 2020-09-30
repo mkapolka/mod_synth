@@ -5,19 +5,17 @@ import os
 import time
 import errno
 
-# SOCKET_FILE = "./sock-it-to-me"
+def cc_msg(controller, value):
+    return "%s %s\n" % (controller, value)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-# try:
-    # os.remove(SOCKET_FILE)
-# except Exception as e:
-    # pass
 
 midi_in = rtmidi.RtMidiIn()
 midi_in.openPort(0)
 
-# s.bind(SOCKET_FILE)
+cc_values = {}
+
 s.bind(('localhost', 9999))
 try:
     while True:
@@ -25,11 +23,17 @@ try:
         print("Starting server. Listening on localhost:9999")
         try:
             conn, addr = s.accept()
+            for key, value in cc_values.items():
+                msg = cc_msg(key, value)
+                conn.sendall(bytes(msg, 'ascii'))
             print("Accepted connection. Beginning transmission")
             while True:
                 m = midi_in.getMessage(250)
                 if m:
-                    msg = "%s %s\n" % (m.getControllerNumber(), m.getControllerValue())
+                    controller_number = m.getControllerNumber()
+                    controller_value = m.getControllerValue()
+                    cc_values[controller_number] = controller_value
+                    msg = cc_msg(controller_number, controller_value)
                     conn.sendall(bytes(msg, 'ascii'))
         except KeyboardInterrupt:
             print("Closing connection")
