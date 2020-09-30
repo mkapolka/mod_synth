@@ -112,6 +112,9 @@ module {
         self.joystick.default = {x=horizontal, y=vertical}
         self.joystick.value = {x=horizontal, y=vertical}
 
+        horizontal = z1(horizontal)
+        vertical = z1(vertical)
+
         self.horizontal.default = horizontal
         self.horizontal.value = horizontal
 
@@ -136,8 +139,8 @@ function _update_spaceship(self, k, v, dt)
     output_point.x = output_point.x + delta.x
     output_point.y = output_point.y + delta.y
 
-    local forward = self.forward[k] or 0
-    local turn = self.turn[k] or 0
+    local forward = np1(self.forward[k] or .5)
+    local turn = np1(self.turn[k] or .5)
     local rotation = self.rotation[k] or 0
 
     -- Driving
